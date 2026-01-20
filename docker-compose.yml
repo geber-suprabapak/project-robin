@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  face-recognition-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: face-recognition-api:latest
+    container_name: face-recognition-api
+
+    # NVIDIA GPU Runtime Configuration
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+
+    # Environment variables
+    environment:
+      - MODEL_PATH=/app/models/arcface_r100_224x224.onnx
+      - MODEL_INPUT_SIZE=224
+      - EMBEDDING_DIM=512
+      - GPU_DEVICE_ID=0
+      - GPU_MEM_LIMIT=2147483648
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - ENVIRONMENT=production
+      # Load Supabase credentials from .env file
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+
+    # Port mapping
+    ports:
+      - "8000:8000"
+
+    # Volume mounts
+    volumes:
+      - ./models:/app/models:ro # Mount models directory (read-only)
+      - ./logs:/app/logs # Mount logs directory
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Health check
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
