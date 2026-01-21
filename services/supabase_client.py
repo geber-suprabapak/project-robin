@@ -40,23 +40,50 @@ class SupabaseService:
         """Check if Supabase client is connected."""
         return self.client is not None
     
+    async def get_user_profile_by_nis(self, nis: str) -> Optional[Dict[str, Any]]:
+        """Retrieve user profile by NIS from user_profiles table."""
+        if not self.is_connected():
+            logger.warning("Supabase not connected. Cannot fetch user profile.")
+            return None
+        
+        try:
+            response = self.client.table("user_profiles").select("*").eq("nis", nis).execute()
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching user profile: {str(e)}")
+            return None
+    
+    async def get_student_by_user_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve student info by user_id using RPC function."""
+        if not self.is_connected():
+            logger.warning("Supabase not connected. Cannot fetch student data.")
+            return None
+        
+        try:
+            response = self.client.rpc(
+                "get_student_by_user_id",
+                {"p_user_id": user_id}
+            ).execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching student by user_id: {str(e)}")
+            return None
+    
     async def find_face_match(
         self,
         embedding: np.ndarray,
         threshold: float = 0.6
     ) -> Optional[Dict[str, Any]]:
         """
-        Find matching face in database by comparing embeddings using pgvector.
-        
-        Args:
-            embedding: Face embedding vector to match
-            threshold: Minimum similarity threshold
-            
-        Returns:
-            Dictionary with student info if match found, None otherwise
+        Find matching face in database and return complete student info.
+        Uses find_face_match RPC to get user_id, then looks up student data server-side.
         """
         if not self.is_connected():
-            # Simulation mode - return mock data
             logger.warning("Supabase not connected. Returning simulated match.")
             return {
                 "nis": "12345678",
@@ -66,198 +93,205 @@ class SupabaseService:
             }
         
         try:
-            # Convert numpy array to list for JSON serialization
             embedding_list = embedding.tolist()
             
-            # Call the RPC function for vector similarity search
+            # Step 1: Find face match - returns user_id only
             response = self.client.rpc(
                 "find_face_match",
                 {
                     "query_embedding": embedding_list,
                     "match_threshold": threshold,
-                    "match_count": 1  # Return only the best match
+                    "match_count": 1
                 }
             ).execute()
             
-            if response.data and len(response.data) > 0:
-                match = response.data[0]
-                logger.info(
-                    f"Match found - NIS: {match['nis']}, "
-                    f"Confidence: {match['confidence']:.3f}, "
-                    f"Distance: {match['distance']:.3f}"
-                )
-                return match
+            if not response.data or len(response.data) == 0:
+                logger.info("No matching face found in database")
+                return None
             
-            logger.info("No matching face found in database")
-            return None
+            match = response.data[0]
+            user_id = match["user_id"]
+            confidence = match["confidence"]
+            distance = match["distance"]
+            
+            # Step 2: Server-side lookup of student info
+            student = await self.get_student_by_user_id(user_id)
+            
+            if not student:
+                logger.warning(f"Face matched user_id {user_id} but no student profile found")
+                return None
+            
+            result = {
+                "user_id": user_id,
+                "nis": student["nis"],
+                "nama": student["nama"],
+                "kelas": student.get("kelas"),
+                "confidence": confidence,
+                "distance": distance
+            }
+            
+            logger.info(
+                f"Match found - NIS: {result['nis']}, "
+                f"Confidence: {confidence:.3f}, Distance: {distance:.3f}"
+            )
+            return result
             
         except Exception as e:
             logger.error(f"Error during face match search: {str(e)}")
-            # Return None instead of re-raising to allow graceful handling
             return None
 
-    
-    async def get_student_by_nis(self, nis: str) -> Optional[Dict[str, Any]]:
-        """
-        Retrieve student information by NIS.
-        
-        Args:
-            nis: Student NIS (Nomor Induk Siswa)
-            
-        Returns:
-            Student data dictionary or None if not found
-        """
+    async def delete_user_embeddings(self, user_id: str) -> int:
+        """Delete all face embeddings for a user (for re-enrollment)."""
         if not self.is_connected():
-            logger.warning("Supabase not connected. Cannot fetch student data.")
-            return None
+            logger.warning("Supabase not connected. Cannot delete embeddings.")
+            return 0
         
         try:
-            response = self.client.table("biodata_siswa").select("*").eq("nis", nis).execute()
+            response = self.client.rpc(
+                "delete_user_embeddings",
+                {"p_user_id": user_id}
+            ).execute()
             
-            if response.data and len(response.data) > 0:
-                return response.data[0]
-            
-            return None
-            
+            deleted_count = response.data if response.data else 0
+            logger.info(f"Deleted {deleted_count} embeddings for user_id {user_id}")
+            return deleted_count
         except Exception as e:
-            logger.error(f"Error fetching student data: {str(e)}")
-            return None
+            logger.error(f"Error deleting embeddings: {str(e)}")
+            return 0
     
-    async def store_face_embedding(
+    async def insert_face_embedding(
         self,
-        nis: str,
+        user_id: str,
         embedding: np.ndarray,
-        user_id: Optional[str] = None,
-        camera_id: Optional[str] = None,
+        embedding_index: int,
         quality_score: Optional[float] = None
-    ) -> bool:
-        """
-        Store or update face embedding for a student.
-        
-        Args:
-            nis: Student NIS
-            embedding: Face embedding vector
-            user_id: UUID of the user (optional)
-            camera_id: Camera/kiosk identifier (optional)
-            quality_score: Image quality score (optional)
-            
-        Returns:
-            True if successful, False otherwise
-        """
+    ) -> Optional[str]:
+        """Insert a single face embedding for multi-image enrollment."""
         if not self.is_connected():
-            logger.warning("Supabase not connected. Cannot store embedding.")
-            return False
+            logger.warning("Supabase not connected. Cannot insert embedding.")
+            return None
         
         try:
-            # Convert numpy array to list for JSON serialization
             embedding_list = embedding.tolist()
             
-            # Call the upsert RPC function
             response = self.client.rpc(
-                "upsert_face_embedding",
+                "insert_face_embedding",
                 {
-                    "p_nis": nis,
                     "p_user_id": user_id,
                     "p_embedding": embedding_list,
-                    "p_camera_id": camera_id,
+                    "p_image_index": embedding_index,
                     "p_quality_score": quality_score
                 }
             ).execute()
             
             if response.data:
-                logger.info(f"Successfully stored embedding for NIS {nis} (ID: {response.data})")
-                return True
-            
-            return False
-            
-        except Exception as e:
-            logger.error(f"Error storing face embedding: {str(e)}")
-            return False
-
-    async def get_user_profile_by_nis(self, nis: str) -> Optional[Dict[str, Any]]:
-        """
-        Retrieve user profile by NIS from user_profiles table.
-        
-        Args:
-            nis: Student NIS (Nomor Induk Siswa)
-            
-        Returns:
-            User profile data dictionary or None if not found
-        """
-        if not self.is_connected():
-            logger.warning("Supabase not connected. Cannot fetch user profile.")
+                return str(response.data)
             return None
-        
-        try:
-            response = self.client.table("user_profiles").select("*").eq("nis", nis).execute()
-            
-            if response.data and len(response.data) > 0:
-                return response.data[0]
-            
-            return None
-            
         except Exception as e:
-            logger.error(f"Error fetching user profile: {str(e)}")
+            logger.error(f"Error inserting embedding: {str(e)}")
             return None
     
-    async def enroll_student(
+    async def get_user_embedding_count(self, user_id: str) -> int:
+        """Get the count of enrolled face embeddings for a user."""
+        if not self.is_connected():
+            logger.warning("Supabase not connected. Cannot get embedding count.")
+            return 0
+        
+        try:
+            response = self.client.rpc(
+                "count_user_embeddings",
+                {"p_user_id": user_id}
+            ).execute()
+            return response.data if response.data else 0
+        except Exception as e:
+            logger.error(f"Error getting embedding count: {str(e)}")
+            return 0
+    
+    async def enroll_student_multi(
         self,
         nis: str,
         name: str,
-        embedding: np.ndarray,
+        embeddings: List[np.ndarray],
         class_name: Optional[str] = None
-    ) -> Optional[str]:
+    ) -> Dict[str, Any]:
         """
-        Enroll a student by storing their face embedding.
-        
-        Looks up user_id from user_profiles table by NIS, then stores
-        the embedding in face_embeddings table.
-        
-        Args:
-            nis: Student NIS
-            name: Student full name (for logging)
-            embedding: Face embedding vector (512-dim)
-            class_name: Optional class name
-            
-        Returns:
-            UUID of inserted record if successful, None otherwise
+        Enroll a student with multiple face embeddings.
+        Looks up user_id by NIS, deletes existing embeddings, then inserts all new ones.
         """
         if not self.is_connected():
             logger.warning("Supabase not connected. Cannot enroll student.")
-            return None
+            return {
+                "success": False, 
+                "user_id": None,
+                "inserted_count": 0, 
+                "total_embeddings": 0,
+                "message": "Database not connected"
+            }
         
         try:
-            # Lookup user_id from user_profiles
+            # Step 1: Lookup user_id from user_profiles by NIS
             user_profile = await self.get_user_profile_by_nis(nis)
-            user_id = user_profile.get("user_id") if user_profile else None
             
-            # Convert numpy array to list for JSON serialization
-            embedding_list = embedding.tolist()
-            
-            # Call the upsert RPC function with camera_id as "enrollment"
-            response = self.client.rpc(
-                "upsert_face_embedding",
-                {
-                    "p_nis": nis,
-                    "p_user_id": user_id,
-                    "p_embedding": embedding_list,
-                    "p_camera_id": "enrollment",
-                    "p_quality_score": None
+            if not user_profile:
+                logger.warning(f"No user profile found for NIS {nis}")
+                return {
+                    "success": False,
+                    "user_id": None,
+                    "inserted_count": 0,
+                    "total_embeddings": 0,
+                    "message": f"No user profile found for NIS {nis}. Student must register first."
                 }
-            ).execute()
             
-            if response.data:
-                record_id = str(response.data)
-                logger.info(f"Successfully enrolled student {name} (NIS: {nis}, ID: {record_id})")
-                return record_id
+            user_id = user_profile.get("user_id")
+            if not user_id:
+                logger.warning(f"User profile for NIS {nis} has no user_id")
+                return {
+                    "success": False,
+                    "user_id": None,
+                    "inserted_count": 0,
+                    "total_embeddings": 0,
+                    "message": f"User profile for NIS {nis} is incomplete (no user_id)"
+                }
             
-            logger.warning(f"Enrollment returned no data for NIS {nis}")
-            return None
+            # Step 2: Delete existing embeddings first
+            deleted = await self.delete_user_embeddings(user_id)
+            logger.info(f"Deleted {deleted} existing embeddings for user_id {user_id}")
+            
+            # Step 3: Insert all new embeddings
+            inserted_count = 0
+            for idx, embedding in enumerate(embeddings):
+                result = await self.insert_face_embedding(
+                    user_id=user_id,
+                    embedding=embedding,
+                    embedding_index=idx + 1  # 1-based index
+                )
+                if result:
+                    inserted_count += 1
+            
+            # Step 4: Get final count
+            total = await self.get_user_embedding_count(user_id)
+            
+            logger.info(
+                f"Enrolled student {name} (NIS: {nis}) with {inserted_count}/{len(embeddings)} embeddings"
+            )
+            
+            return {
+                "success": inserted_count > 0,
+                "user_id": user_id,
+                "inserted_count": inserted_count,
+                "total_embeddings": total,
+                "message": f"Enrolled {inserted_count} face images successfully"
+            }
             
         except Exception as e:
-            logger.error(f"Error enrolling student: {str(e)}")
-            return None
-
+            logger.error(f"Error in multi-enrollment: {str(e)}")
+            return {
+                "success": False,
+                "user_id": None,
+                "inserted_count": 0,
+                "total_embeddings": 0,
+                "message": f"Enrollment failed: {str(e)}"
+            }
 
 
 # Global Supabase service instance

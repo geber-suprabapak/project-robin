@@ -19,7 +19,8 @@ High-performance REST API for face recognition processing using **ArcFace** ONNX
 ## ✨ Features
 
 - **GPU-Accelerated Inference**: CUDA support with automatic CPU fallback
-- **Face Enrollment**: DNN-based face detection + embedding extraction
+- **Multi-Image Enrollment**: Support for 10-20 training images per user for higher accuracy
+- **Auto Face Cropping**: Automatic face detection and cropping for all input images
 - **Face Identification**: Real-time face matching against database
 - **Singleton Pattern**: Model loaded once, efficient memory usage
 - **Thread-Safe**: Concurrent request handling with thread locks
@@ -44,15 +45,15 @@ project-robin/
 │
 ├── services/
 │   ├── image_decoder.py         # Base64 → numpy, preprocessing
-│   ├── face_detector.py         # DNN face detection (ResNet SSD)
+│   ├── face_detector.py         # DNN face detection + auto cropping
 │   └── supabase_client.py       # Database operations, vector search
 │
 ├── schemas/
 │   └── api_models.py            # Pydantic request/response models
 │
 └── sql/
-    ├── schema_latest_latest.sql # Main database schema
-    └── face_embeddings_schema.sql # Face embeddings + pgvector
+    ├── schema_latest_latest.sql         # Main database schema
+    └── face_embeddings_user_id_schema.sql # Current face embeddings schema (User ID based)
 ```
 
 ## 🚀 Quick Start (Local Testing)
@@ -199,13 +200,13 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ### 2. Run Face Embeddings Schema
 
-Execute `sql/face_embeddings_schema.sql` in Supabase SQL Editor.
+Execute `sql/face_embeddings_user_id_schema.sql` in Supabase SQL Editor.
 
 This creates:
-- `face_embeddings` table with vector(512) column
+- `face_embeddings` table with vector(512) column, linked by `user_id`
 - HNSW index for fast similarity search
-- RPC functions: `find_face_match()`, `upsert_face_embedding()`
-- Row Level Security policies
+- RPC functions: `find_face_match()`, `insert_face_embedding()`, `delete_user_embeddings()`
+- Multi-image enrollment indices
 
 ## 📚 API Documentation
 
@@ -213,9 +214,9 @@ Interactive docs available at: **http://localhost:8000/docs**
 
 ---
 
-### `POST /v1/enroll` - Enroll Student Face
+### `POST /v1/enroll` - Enroll Student (Multi-Image)
 
-Register a student's face for recognition. **Requires admin API key.**
+Register a student's face for recognition using **10-20 images** for better accuracy. **Requires admin API key.**
 
 **Headers:**
 ```
@@ -225,7 +226,7 @@ X-Admin-Key: your-admin-secret-key
 **Request (multipart/form-data):**
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `file` | File | ✅ | Face image (JPG/PNG) |
+| `files` | List[File] | ✅ | **10-20** Face images (JPG/PNG) |
 | `name` | string | ✅ | Student's full name |
 | `nisn` | string | ✅ | Student's unique ID (NIS/NISN) |
 | `class_name` | string | ❌ | Class name (optional) |
@@ -234,7 +235,10 @@ X-Admin-Key: your-admin-secret-key
 ```bash
 curl -X POST "http://localhost:8000/v1/enroll" \
   -H "X-Admin-Key: your-admin-secret-key" \
-  -F "file=@student_photo.jpg" \
+  -F "files=@photo1.jpg" \
+  -F "files=@photo2.jpg" \
+  -F "files=@photo3.jpg" \
+  ... \
   -F "name=Ahmad Rizki" \
   -F "nisn=12345678" \
   -F "class_name=XII IPA 1"
@@ -244,17 +248,20 @@ curl -X POST "http://localhost:8000/v1/enroll" \
 ```json
 {
   "status": "success",
-  "student_id": "550e8400-e29b-41d4-a716-446655440000",
-  "message": "Student enrolled successfully"
+  "student_id": "12345678",
+  "images_processed": 15,
+  "images_failed": 0,
+  "total_embeddings": 15,
+  "message": "Student enrolled successfully with 15 face images"
 }
 ```
 
-**Response (Error - Multiple Faces):**
+**Response (Error - Not Enough Images):**
 ```json
 {
   "status": "error",
   "error": "HTTPException",
-  "message": "Multiple faces detected (3). Please use a solo photo."
+  "message": "Minimum 10 images required. Received: 5"
 }
 ```
 

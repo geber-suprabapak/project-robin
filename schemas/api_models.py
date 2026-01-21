@@ -128,15 +128,27 @@ class HealthResponse(BaseModel):
 
 
 class EnrollResponse(BaseModel):
-    """Response model for student enrollment endpoint."""
+    """Response model for multi-image student enrollment endpoint."""
     
     status: str = Field(
         ...,
-        description="Status of the operation (success or error)"
+        description="Status of the operation (success, partial, or error)"
     )
     student_id: Optional[str] = Field(
         None,
-        description="UUID of the enrolled face embedding record"
+        description="Student's NIS (Nomor Induk Siswa)"
+    )
+    images_processed: int = Field(
+        0,
+        description="Number of images successfully processed"
+    )
+    images_failed: int = Field(
+        0,
+        description="Number of images that failed processing"
+    )
+    total_embeddings: int = Field(
+        0,
+        description="Total embeddings now stored for this student"
     )
     message: str = Field(
         ...,
@@ -147,7 +159,10 @@ class EnrollResponse(BaseModel):
         json_schema_extra = {
             "example": {
                 "status": "success",
-                "student_id": "550e8400-e29b-41d4-a716-446655440000",
-                "message": "Student enrolled successfully"
+                "student_id": "12345678",
+                "images_processed": 15,
+                "images_failed": 0,
+                "total_embeddings": 15,
+                "message": "Student enrolled successfully with 15 face images"
             }
         }

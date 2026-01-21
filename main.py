@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import numpy as np
 import cv2
-from typing import Optional
+from typing import Optional, List
 
 from config import settings
 from core.inference_engine import inference_engine
@@ -24,7 +24,7 @@ from services.image_decoder import (
     ImageDecodeError
 )
 from services.supabase_client import supabase_service
-from services.face_detector import validate_single_face, FaceDetectionError
+from services.face_detector import validate_single_face, crop_face_from_image, FaceDetectionError
 from dependencies import get_admin_api_key
 from schemas.api_models import (
     IdentifyRequest,
@@ -189,10 +189,34 @@ async def identify_face(request: IdentifyRequest) -> IdentifyResponse:
                 detail=str(e)
             )
         
-        # ===== Step 2: Preprocess Image =====
+        # ===== Step 2: Detect and Crop Face =====
+        try:
+            # Validate single face
+            is_valid, face_count, face_message = validate_single_face(image_np)
+            
+            if not is_valid:
+                logger.warning(f"Face validation failed: {face_message}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=face_message
+                )
+            
+            # Crop face region
+            cropped_face = crop_face_from_image(image_np, margin=0.2)
+            logger.debug(f"Face cropped: {cropped_face.shape}")
+        except FaceDetectionError as e:
+            logger.error(f"Face detection error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+        except HTTPException:
+            raise
+        
+        # ===== Step 3: Preprocess Image =====
         try:
             preprocessed = preprocess_face_image(
-                image_np,
+                cropped_face,  # Use cropped face
                 target_size=settings.model_input_size,
                 normalize=True
             )
@@ -204,7 +228,7 @@ async def identify_face(request: IdentifyRequest) -> IdentifyResponse:
                 detail=f"Image preprocessing failed: {str(e)}"
             )
         
-        # ===== Step 3: Generate Embedding (GPU Inference) =====
+        # ===== Step 4: Generate Embedding (GPU Inference) =====
         try:
             embedding = inference_engine.predict(preprocessed)
             logger.info(f"🔬 Embedding generated - Dim: {embedding.shape}")
@@ -215,7 +239,7 @@ async def identify_face(request: IdentifyRequest) -> IdentifyResponse:
                 detail=f"Face recognition inference failed: {str(e)}"
             )
         
-        # ===== Step 4: Search for Match in Database =====
+        # ===== Step 5: Search for Match in Database =====
         try:
             match_result = await supabase_service.find_face_match(
                 embedding,
@@ -228,7 +252,7 @@ async def identify_face(request: IdentifyRequest) -> IdentifyResponse:
                 detail=f"Database search failed: {str(e)}"
             )
         
-        # ===== Step 5: Prepare Response =====
+        # ===== Step 6: Prepare Response =====
         end_time = time.perf_counter()
         process_time_ms = int((end_time - start_time) * 1000)
         
@@ -272,131 +296,152 @@ async def identify_face(request: IdentifyRequest) -> IdentifyResponse:
 
 
 # ============================================================================
-# Face Enrollment Endpoint
+# Face Enrollment Endpoint (Multi-Image)
 # ============================================================================
+
+# Constants for enrollment constraints
+MIN_ENROLLMENT_IMAGES = 10
+MAX_ENROLLMENT_IMAGES = 20
 
 @app.post(
     "/v1/enroll",
     response_model=EnrollResponse,
     status_code=status.HTTP_200_OK,
     tags=["Face Recognition"],
-    summary="Enroll a student's face for recognition",
+    summary="Enroll a student with multiple face images",
     responses={
         200: {"description": "Student enrolled successfully"},
-        400: {"model": ErrorResponse, "description": "Invalid image or multiple/no faces"},
+        400: {"model": ErrorResponse, "description": "Invalid images or count"},
         401: {"model": ErrorResponse, "description": "Invalid admin key"},
         500: {"model": ErrorResponse, "description": "Server error"}
     }
 )
 async def enroll_student(
-    file: UploadFile = File(..., description="Face image file (JPG/PNG)"),
+    files: List[UploadFile] = File(..., description="10-20 face images (JPG/PNG)"),
     name: str = Form(..., description="Student's full name"),
     nisn: str = Form(..., description="Student's unique ID (NIS/NISN)"),
     class_name: Optional[str] = Form(None, description="Class name (optional)"),
     admin_key: str = Depends(get_admin_api_key)
 ) -> EnrollResponse:
     """
-    Enroll a student by extracting face embedding and storing in database.
+    Enroll a student with multiple face images for improved accuracy.
     
     Process:
-    1. Decode uploaded image
-    2. Validate exactly one face exists (quality check)
-    3. Preprocess and extract 512-dim embedding
-    4. Store embedding in Supabase database
+    1. Validate image count (10-20 images required)
+    2. For each image: decode, validate single face, extract embedding
+    3. Store all valid embeddings in Supabase
     
     Args:
-        file: Image file upload (JPG/PNG)
+        files: Multiple image files (10-20 JPG/PNG images)
         name: Student's full name
-        nisn: Student's unique ID
+        nisn: Student's NIS for user_id lookup
         class_name: Optional class name
         admin_key: Admin API key (from X-Admin-Key header)
         
     Returns:
-        EnrollResponse with status, student_id, and message
+        EnrollResponse with status, counts, and message
     """
     try:
-        # ===== Step 1: Read and Decode Image =====
-        try:
-            contents = await file.read()
-            nparr = np.frombuffer(contents, np.uint8)
-            image_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            
-            if image_np is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Failed to decode image - corrupt or unsupported format"
-                )
-            
-            logger.info(f"📸 Enrollment image received - Shape: {image_np.shape}, Student: {name}")
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Image read error: {str(e)}")
+        # ===== Step 1: Validate Image Count =====
+        file_count = len(files)
+        
+        if file_count < MIN_ENROLLMENT_IMAGES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to read image file: {str(e)}"
+                detail=f"Minimum {MIN_ENROLLMENT_IMAGES} images required. Received: {file_count}"
             )
         
-        # ===== Step 2: Face Detection Quality Check =====
-        try:
-            is_valid, face_count, face_message = validate_single_face(image_np)
+        if file_count > MAX_ENROLLMENT_IMAGES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Maximum {MAX_ENROLLMENT_IMAGES} images allowed. Received: {file_count}"
+            )
+        
+        logger.info(f"📸 Enrollment started - Student: {name}, NIS: {nisn}, Images: {file_count}")
+        
+        # ===== Step 2: Process Each Image =====
+        embeddings = []
+        failed_images = []
+        
+        for idx, file in enumerate(files):
+            image_name = file.filename or f"image_{idx+1}"
             
-            if not is_valid:
-                logger.warning(f"Face validation failed: {face_message}")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=face_message
+            try:
+                # Read and decode image
+                contents = await file.read()
+                nparr = np.frombuffer(contents, np.uint8)
+                image_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                
+                if image_np is None:
+                    failed_images.append({"index": idx+1, "name": image_name, "error": "Failed to decode"})
+                    continue
+                
+                # Validate single face
+                is_valid, face_count, face_message = validate_single_face(image_np)
+                
+                if not is_valid:
+                    failed_images.append({"index": idx+1, "name": image_name, "error": face_message})
+                    continue
+                
+                # Crop face region with margin
+                cropped_face = crop_face_from_image(image_np, margin=0.2)
+                
+                # Preprocess and extract embedding
+                preprocessed = preprocess_face_image(
+                    cropped_face,  # Use cropped face instead of full image
+                    target_size=settings.model_input_size,
+                    normalize=True
                 )
-            
-            logger.info(f"✅ Face validation passed - {face_count} face detected")
-        except FaceDetectionError as e:
-            logger.error(f"Face detection error: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Face detection failed: {str(e)}"
-            )
-        except HTTPException:
-            raise
+                embedding = inference_engine.predict(preprocessed)
+                embeddings.append(embedding)
+                
+                logger.debug(f"✅ Image {idx+1}/{file_count} processed: {image_name}")
+                
+            except Exception as e:
+                failed_images.append({"index": idx+1, "name": image_name, "error": str(e)})
+                logger.warning(f"⚠️ Image {idx+1} failed: {str(e)}")
         
-        # ===== Step 3: Preprocess and Extract Embedding =====
-        try:
-            preprocessed = preprocess_face_image(
-                image_np,
-                target_size=settings.model_input_size,
-                normalize=True
-            )
-            embedding = inference_engine.predict(preprocessed)
-            logger.info(f"🔬 Embedding extracted - Dim: {embedding.shape}")
-        except Exception as e:
-            logger.error(f"Embedding extraction error: {str(e)}")
+        # ===== Step 3: Check Minimum Valid Images =====
+        if len(embeddings) < MIN_ENROLLMENT_IMAGES:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Face embedding extraction failed: {str(e)}"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Not enough valid images. Need {MIN_ENROLLMENT_IMAGES}, got {len(embeddings)}. "
+                       f"Failed: {len(failed_images)} images"
             )
+        
+        logger.info(f"🔬 Extracted {len(embeddings)} embeddings from {file_count} images")
         
         # ===== Step 4: Store in Database =====
         try:
-            student_id = await supabase_service.enroll_student(
+            result = await supabase_service.enroll_student_multi(
                 nis=nisn,
                 name=name,
-                embedding=embedding,
+                embeddings=embeddings,
                 class_name=class_name
             )
             
-            if student_id:
-                logger.info(f"✅ Student enrolled - NIS: {nisn}, Name: {name}, ID: {student_id}")
+            if result["success"]:
+                logger.info(
+                    f"✅ Enrollment complete - NIS: {nisn}, "
+                    f"Embeddings: {result['total_embeddings']}"
+                )
                 return EnrollResponse(
                     status="success",
-                    student_id=student_id,
-                    message="Student enrolled successfully"
+                    student_id=nisn,
+                    images_processed=result["inserted_count"],
+                    images_failed=len(failed_images),
+                    total_embeddings=result["total_embeddings"],
+                    message=f"Student enrolled successfully with {result['total_embeddings']} face images"
                 )
             else:
-                logger.warning(f"⚠️ Enrollment returned no ID for NIS: {nisn}")
-                return EnrollResponse(
-                    status="success",
-                    student_id=None,
-                    message="Student enrollment processed (simulation mode or no ID returned)"
+                logger.warning(f"⚠️ Enrollment failed: {result['message']}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=result["message"]
                 )
+                
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Database error: {str(e)}")
             raise HTTPException(

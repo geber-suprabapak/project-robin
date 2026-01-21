@@ -154,7 +154,7 @@ Write-Host ""
 
 # Check readiness
 $envExists = Test-Path ".env"
-$modelExists = Test-Path "models/arcface_r100_224x224.onnx"
+$modelExists = Test-Path "models/glintr100.onnx"
 
 if (-not $modelExists) {
     Write-Warning "Cannot start: ArcFace model is missing"

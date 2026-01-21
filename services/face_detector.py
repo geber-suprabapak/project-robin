@@ -145,3 +145,51 @@ def validate_single_face(
         return True, 1, "Face detected successfully."
     else:
         return False, face_count, f"Multiple faces detected ({face_count}). Please use a solo photo."
+
+
+def crop_face_from_image(
+    image: np.ndarray,
+    margin: float = 0.2,
+    confidence_threshold: float = 0.5
+) -> np.ndarray:
+    """
+    Detect and crop face from image with margin.
+    
+    Args:
+        image: Input image in BGR format (OpenCV)
+        margin: Margin to add around face (0.2 = 20% padding)
+        confidence_threshold: Minimum confidence for face detection
+        
+    Returns:
+        Cropped face image
+        
+    Raises:
+        FaceDetectionError: If no face or multiple faces detected
+    """
+    faces = detect_faces(image, confidence_threshold)
+    
+    if len(faces) == 0:
+        raise FaceDetectionError("No face detected for cropping")
+    elif len(faces) > 1:
+        raise FaceDetectionError(f"Multiple faces detected ({len(faces)}). Cannot crop.")
+    
+    # Get the single face bounding box
+    x, y, w, h = faces[0]
+    
+    # Add margin
+    margin_w = int(w * margin)
+    margin_h = int(h * margin)
+    
+    # Calculate new coordinates with margin
+    x1 = max(0, x - margin_w)
+    y1 = max(0, y - margin_h)
+    x2 = min(image.shape[1], x + w + margin_w)
+    y2 = min(image.shape[0], y + h + margin_h)
+    
+    # Crop the face region
+    cropped_face = image[y1:y2, x1:x2]
+    
+    logger.debug(f"Face cropped: original {image.shape}, cropped {cropped_face.shape}")
+    
+    return cropped_face
+

@@ -35,9 +35,10 @@ CREATE TABLE IF NOT EXISTS face_embeddings (
     
     -- Foreign keys
     CONSTRAINT fk_face_embeddings_user_id FOREIGN KEY (user_id) 
-        REFERENCES auth.users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_face_embeddings_nis FOREIGN KEY (nis) 
-        REFERENCES biodata_siswa(nis) ON DELETE CASCADE
+        REFERENCES auth.users(id) ON DELETE CASCADE
+    -- Note: nis references user_profiles.nis (TEXT) not biodata_siswa.nis (BIGINT)
+    -- Foreign key on nis is removed since user_profiles.nis is not unique
+    -- Use user_id as the primary relationship instead
 );
 
 -- ============================================================================
