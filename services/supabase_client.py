@@ -174,6 +174,90 @@ class SupabaseService:
             logger.error(f"Error storing face embedding: {str(e)}")
             return False
 
+    async def get_user_profile_by_nis(self, nis: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve user profile by NIS from user_profiles table.
+        
+        Args:
+            nis: Student NIS (Nomor Induk Siswa)
+            
+        Returns:
+            User profile data dictionary or None if not found
+        """
+        if not self.is_connected():
+            logger.warning("Supabase not connected. Cannot fetch user profile.")
+            return None
+        
+        try:
+            response = self.client.table("user_profiles").select("*").eq("nis", nis).execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error fetching user profile: {str(e)}")
+            return None
+    
+    async def enroll_student(
+        self,
+        nis: str,
+        name: str,
+        embedding: np.ndarray,
+        class_name: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Enroll a student by storing their face embedding.
+        
+        Looks up user_id from user_profiles table by NIS, then stores
+        the embedding in face_embeddings table.
+        
+        Args:
+            nis: Student NIS
+            name: Student full name (for logging)
+            embedding: Face embedding vector (512-dim)
+            class_name: Optional class name
+            
+        Returns:
+            UUID of inserted record if successful, None otherwise
+        """
+        if not self.is_connected():
+            logger.warning("Supabase not connected. Cannot enroll student.")
+            return None
+        
+        try:
+            # Lookup user_id from user_profiles
+            user_profile = await self.get_user_profile_by_nis(nis)
+            user_id = user_profile.get("user_id") if user_profile else None
+            
+            # Convert numpy array to list for JSON serialization
+            embedding_list = embedding.tolist()
+            
+            # Call the upsert RPC function with camera_id as "enrollment"
+            response = self.client.rpc(
+                "upsert_face_embedding",
+                {
+                    "p_nis": nis,
+                    "p_user_id": user_id,
+                    "p_embedding": embedding_list,
+                    "p_camera_id": "enrollment",
+                    "p_quality_score": None
+                }
+            ).execute()
+            
+            if response.data:
+                record_id = str(response.data)
+                logger.info(f"Successfully enrolled student {name} (NIS: {nis}, ID: {record_id})")
+                return record_id
+            
+            logger.warning(f"Enrollment returned no data for NIS {nis}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error enrolling student: {str(e)}")
+            return None
+
 
 
 # Global Supabase service instance

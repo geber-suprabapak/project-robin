@@ -73,6 +73,12 @@ class Settings(BaseSettings):
         le=2.0,
         description="Maximum cosine distance for face matching"
     )
+    
+    # Admin Security Configuration
+    admin_secret_key: str = Field(
+        default="",
+        description="Secret key for admin-only endpoints (e.g., enrollment)"
+    )
 
 
 # Global settings instance

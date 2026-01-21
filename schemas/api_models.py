@@ -125,3 +125,29 @@ class HealthResponse(BaseModel):
                 "supabase_connected": True
             }
         }
+
+
+class EnrollResponse(BaseModel):
+    """Response model for student enrollment endpoint."""
+    
+    status: str = Field(
+        ...,
+        description="Status of the operation (success or error)"
+    )
+    student_id: Optional[str] = Field(
+        None,
+        description="UUID of the enrolled face embedding record"
+    )
+    message: str = Field(
+        ...,
+        description="Human-readable result message"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "status": "success",
+                "student_id": "550e8400-e29b-41d4-a716-446655440000",
+                "message": "Student enrolled successfully"
+            }
+        }

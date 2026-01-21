@@ -8,10 +8,12 @@ import time
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import numpy as np
+import cv2
+from typing import Optional
 
 from config import settings
 from core.inference_engine import inference_engine
@@ -22,11 +24,14 @@ from services.image_decoder import (
     ImageDecodeError
 )
 from services.supabase_client import supabase_service
+from services.face_detector import validate_single_face, FaceDetectionError
+from dependencies import get_admin_api_key
 from schemas.api_models import (
     IdentifyRequest,
     IdentifyResponse,
     ErrorResponse,
-    HealthResponse
+    HealthResponse,
+    EnrollResponse
 )
 
 # Configure logging
@@ -260,6 +265,149 @@ async def identify_face(request: IdentifyRequest) -> IdentifyResponse:
     except Exception as e:
         # Catch-all for unexpected errors
         logger.exception(f"Unexpected error in identify_face: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
+        )
+
+
+# ============================================================================
+# Face Enrollment Endpoint
+# ============================================================================
+
+@app.post(
+    "/v1/enroll",
+    response_model=EnrollResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Face Recognition"],
+    summary="Enroll a student's face for recognition",
+    responses={
+        200: {"description": "Student enrolled successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid image or multiple/no faces"},
+        401: {"model": ErrorResponse, "description": "Invalid admin key"},
+        500: {"model": ErrorResponse, "description": "Server error"}
+    }
+)
+async def enroll_student(
+    file: UploadFile = File(..., description="Face image file (JPG/PNG)"),
+    name: str = Form(..., description="Student's full name"),
+    nisn: str = Form(..., description="Student's unique ID (NIS/NISN)"),
+    class_name: Optional[str] = Form(None, description="Class name (optional)"),
+    admin_key: str = Depends(get_admin_api_key)
+) -> EnrollResponse:
+    """
+    Enroll a student by extracting face embedding and storing in database.
+    
+    Process:
+    1. Decode uploaded image
+    2. Validate exactly one face exists (quality check)
+    3. Preprocess and extract 512-dim embedding
+    4. Store embedding in Supabase database
+    
+    Args:
+        file: Image file upload (JPG/PNG)
+        name: Student's full name
+        nisn: Student's unique ID
+        class_name: Optional class name
+        admin_key: Admin API key (from X-Admin-Key header)
+        
+    Returns:
+        EnrollResponse with status, student_id, and message
+    """
+    try:
+        # ===== Step 1: Read and Decode Image =====
+        try:
+            contents = await file.read()
+            nparr = np.frombuffer(contents, np.uint8)
+            image_np = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            if image_np is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Failed to decode image - corrupt or unsupported format"
+                )
+            
+            logger.info(f"📸 Enrollment image received - Shape: {image_np.shape}, Student: {name}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Image read error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to read image file: {str(e)}"
+            )
+        
+        # ===== Step 2: Face Detection Quality Check =====
+        try:
+            is_valid, face_count, face_message = validate_single_face(image_np)
+            
+            if not is_valid:
+                logger.warning(f"Face validation failed: {face_message}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=face_message
+                )
+            
+            logger.info(f"✅ Face validation passed - {face_count} face detected")
+        except FaceDetectionError as e:
+            logger.error(f"Face detection error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Face detection failed: {str(e)}"
+            )
+        except HTTPException:
+            raise
+        
+        # ===== Step 3: Preprocess and Extract Embedding =====
+        try:
+            preprocessed = preprocess_face_image(
+                image_np,
+                target_size=settings.model_input_size,
+                normalize=True
+            )
+            embedding = inference_engine.predict(preprocessed)
+            logger.info(f"🔬 Embedding extracted - Dim: {embedding.shape}")
+        except Exception as e:
+            logger.error(f"Embedding extraction error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Face embedding extraction failed: {str(e)}"
+            )
+        
+        # ===== Step 4: Store in Database =====
+        try:
+            student_id = await supabase_service.enroll_student(
+                nis=nisn,
+                name=name,
+                embedding=embedding,
+                class_name=class_name
+            )
+            
+            if student_id:
+                logger.info(f"✅ Student enrolled - NIS: {nisn}, Name: {name}, ID: {student_id}")
+                return EnrollResponse(
+                    status="success",
+                    student_id=student_id,
+                    message="Student enrolled successfully"
+                )
+            else:
+                logger.warning(f"⚠️ Enrollment returned no ID for NIS: {nisn}")
+                return EnrollResponse(
+                    status="success",
+                    student_id=None,
+                    message="Student enrollment processed (simulation mode or no ID returned)"
+                )
+        except Exception as e:
+            logger.error(f"Database error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Database operation failed: {str(e)}"
+            )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Unexpected error in enroll_student: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}"
