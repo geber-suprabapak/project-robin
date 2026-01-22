@@ -47,7 +47,8 @@ try {
         Write-Success "uv is installed: $uvVersion"
         $uvInstalled = $true
     }
-} catch {
+}
+catch {
     $uvInstalled = $false
 }
 
@@ -66,13 +67,15 @@ if (-not $uvInstalled) {
             Write-Info "Please restart this script to continue."
             Write-Host ""
             exit 0
-        } catch {
+        }
+        catch {
             Write-Error "Failed to install uv: $_"
             Write-Host ""
             Write-Host "  Please install uv manually from: https://docs.astral.sh/uv/" -ForegroundColor Yellow
             exit 1
         }
-    } else {
+    }
+    else {
         Write-Error "uv is required to run this project."
         Write-Host ""
         Write-Host "  Install manually with:" -ForegroundColor Yellow
@@ -88,7 +91,8 @@ Write-Step "[2/6] Checking Python version..."
 try {
     $pythonVersion = uv python find 2>&1
     Write-Success "Python found via uv: $pythonVersion"
-} catch {
+}
+catch {
     Write-Warning "No default Python found. uv will download it automatically."
 }
 
@@ -100,7 +104,8 @@ uv python install 3.12 --force  # Ensure we have the compatible version
 if ($Install) {
     Write-Info "Force installing dependencies..."
     uv sync --reinstall --python 3.12
-} else {
+}
+else {
     if (Test-Path ".venv") {
         Write-Success "Virtual environment exists"
     }
@@ -112,7 +117,8 @@ Write-Success "Dependencies synced"
 Write-Step "[4/6] Checking configuration..."
 if (Test-Path ".env") {
     Write-Success ".env file exists"
-} else {
+}
+else {
     Write-Warning ".env file not found. Creating from template..."
     Copy-Item .env.example .env
     Write-Success ".env created"
@@ -128,7 +134,8 @@ if (Test-Path ".env") {
 Write-Step "[5/6] Checking ONNX model..."
 if (Test-Path "models/glintr100.onnx") {
     Write-Success "ArcFace model found"
-} else {
+}
+else {
     Write-Warning "Model file not found!"
     Write-Host ""
     Write-Host "  Download Auraface ONNX model:" -ForegroundColor Yellow
@@ -142,7 +149,8 @@ if (Test-Path "models/glintr100.onnx") {
 Write-Step "[6/6] Checking face detection model..."
 if (Test-Path "models/deploy.prototxt") {
     Write-Success "Face detector model cached"
-} else {
+}
+else {
     Write-Info "Face detector will auto-download on first enrollment"
 }
 

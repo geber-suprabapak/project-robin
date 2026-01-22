@@ -66,6 +66,12 @@ project-robin/
 │   ├── face_embeddings_user_id_schema.sql
 │   └── MIGRATION_INSTRUCTIONS.md
 │
+├── scripts/                          # Build scripts
+│   ├── build-local.ps1               # Local Docker build (Windows)
+│   ├── build-local.sh                # Local Docker build (Linux/macOS)
+│   ├── build-prod.ps1                # GHCR build & push (Windows)
+│   └── build-prod.sh                 # GHCR build & push (Linux/macOS)
+│
 ├── .env                              # Environment config
 ├── .env.example
 ├── Dockerfile
@@ -127,6 +133,10 @@ ENVIRONMENT=development
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+# GHCR (GitHub Container Registry) - for Docker builds
+GHCR_USERNAME=your-github-username
+GHCR_TOKEN=ghp_xxxxxxxxxxxxx  # Personal Access Token with write:packages scope
 
 # Face Recognition
 FACE_MATCH_THRESHOLD=0.6
@@ -194,8 +204,74 @@ Interactive docs: **http://localhost:8000/docs**
 
 ## 🐳 Docker Deployment
 
+### Quick Start with Docker Compose
+
 ```bash
 docker-compose up -d
+```
+
+### Building Docker Images
+
+#### Local Build (Testing)
+
+Build Docker image locally without pushing to registry:
+
+**Windows (PowerShell):**
+```powershell
+.\scripts\build-local.ps1              # Build with 'latest' tag
+.\scripts\build-local.ps1 -Tag "dev"   # Build with custom tag
+.\scripts\build-local.ps1 -NoCache     # Build without cache
+```
+
+**Linux/macOS (Bash):**
+```bash
+./scripts/build-local.sh               # Build with 'latest' tag
+./scripts/build-local.sh -t "dev"      # Build with custom tag
+./scripts/build-local.sh --no-cache    # Build without cache
+```
+
+#### Production Build (GHCR)
+
+Build and push to GitHub Container Registry:
+
+**Prerequisites:**
+1. Add GHCR credentials to `.env`:
+   ```ini
+   GHCR_USERNAME=your-github-username
+   GHCR_TOKEN=ghp_xxxxxxxxxxxxx  # GitHub Personal Access Token
+   ```
+2. Ensure your PAT has `write:packages` scope
+
+**Windows (PowerShell):**
+```powershell
+.\scripts\build-prod.ps1               # Build and push with 'latest' tag
+.\scripts\build-prod.ps1 -Tag "v1.0.0" # Build and push with version tag
+```
+
+**Linux/macOS (Bash):**
+```bash
+./scripts/build-prod.sh                # Build and push with 'latest' tag
+./scripts/build-prod.sh -t "v1.0.0"    # Build and push with version tag
+```
+
+**Image Registry:** `ghcr.io/geber-suprabapak/project-robin`
+
+### Running Docker Image
+
+**With GPU support:**
+```bash
+docker run --gpus all -p 8000:8000 --env-file .env project-robin:latest
+```
+
+**CPU only:**
+```bash
+docker run -p 8000:8000 --env-file .env project-robin:latest
+```
+
+**From GHCR:**
+```bash
+docker pull ghcr.io/geber-suprabapak/project-robin:latest
+docker run --gpus all -p 8000:8000 --env-file .env ghcr.io/geber-suprabapak/project-robin:latest
 ```
 
 ## ⚡ Performance
