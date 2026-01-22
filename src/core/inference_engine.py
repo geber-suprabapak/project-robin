@@ -10,7 +10,7 @@ from typing import Optional, List
 import numpy as np
 import onnxruntime as ort
 
-from config import settings
+from src.config import settings
 
 logger = logging.getLogger(__name__)
 

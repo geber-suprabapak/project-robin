@@ -3,7 +3,7 @@ FastAPI dependencies for the Face Recognition API.
 """
 
 from fastapi import Header, HTTPException, status
-from config import settings
+from src.config import settings
 
 
 async def get_admin_api_key(x_admin_key: str = Header(..., alias="X-Admin-Key")) -> str:

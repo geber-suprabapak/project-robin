@@ -5,7 +5,7 @@ Supabase client service for database operations.
 from typing import Optional, List, Dict, Any
 from supabase import create_client, Client
 import numpy as np
-from config import settings
+from src.config import settings
 import logging
 
 logger = logging.getLogger(__name__)

@@ -184,4 +184,4 @@ Write-Host "=" * 60 -ForegroundColor Cyan
 Write-Host ""
 
 # Run with uv
-uv run python main.py
+uv run python -m src.main
