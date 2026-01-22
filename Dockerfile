@@ -31,8 +31,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Create symlinks for python
-RUN ln -s /usr/bin/python3.11 /usr/bin/python && \
-    ln -s /usr/bin/pip3 /usr/bin/pip
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python && \
+    ln -sf /usr/bin/pip3 /usr/bin/pip
 
 # Upgrade pip
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
