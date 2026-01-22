@@ -1,33 +1,33 @@
-# 🤖 Face Recognition API (FaceVector-Core)
+# Face Recognition API (FaceVector-Core)
 
-High-performance REST API for face recognition processing using **ArcFace** ONNX model with **GPU acceleration** (NVIDIA CUDA) and **Supabase** database integration.
+A REST API for face recognition, powered by the ArcFace ONNX model. It supports GPU acceleration (CUDA) and uses Supabase for vector storage.
 
-## 📋 Table of Contents
+## Table of Contents
 
-- [Features](#-features)
-- [Architecture](#-architecture)
-- [Quick Start](#-quick-start)
-- [Configuration](#️-configuration)
-- [Database Setup](#-database-setup)
-- [API Documentation](#-api-documentation)
-- [Docker Deployment](#-docker-deployment)
-- [Performance](#-performance)
-- [Troubleshooting](#-troubleshooting)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Database Setup](#database-setup)
+- [API Documentation](#api-documentation)
+- [Docker Deployment](#docker-deployment)
+- [Performance](#performance)
+- [Troubleshooting](#troubleshooting)
 
-## ✨ Features
+## Features
 
-- **GPU-Accelerated Inference**: CUDA support with automatic CPU fallback
-- **Multi-Image Enrollment**: Support for 10-20 training images per user
-- **Auto Face Cropping**: Automatic face detection and cropping
-- **Face Identification**: Real-time face matching against database
-- **Singleton Pattern**: Model loaded once, efficient memory usage
-- **Thread-Safe**: Concurrent request handling with thread locks
-- **Clean Architecture**: Modular layers (api, core, services, schemas)
-- **Supabase Integration**: PostgreSQL with pgvector for similarity search
-- **Docker Ready**: NVIDIA runtime support for containerized deployment
-- **Admin Protection**: API key authentication for sensitive endpoints
+- **GPU-Accelerated Inference**: Uses CUDA if available, otherwise falls back to CPU.
+- **Multi-Image Enrollment**: Accepts 10-20 training images per user to improve accuracy.
+- **Auto Face Cropping**: Automatically detects and crops faces from input images.
+- **Face Identification**: Matches faces against the database in real-time.
+- **Singleton Pattern**: Loads the model once to save memory.
+- **Thread-Safe**: Handles concurrent requests safely.
+- **Clean Architecture**: Code is organized into modular layers (api, core, services, schemas).
+- **Supabase Integration**: Uses PostgreSQL and pgvector for similarity search.
+- **Docker Ready**: Supports NVIDIA runtime for containerized deployment.
+- **Admin Protection**: Secures sensitive endpoints with API keys.
 
-## 🏗 Architecture
+## Architecture
 
 ```
 project-robin/
@@ -82,7 +82,7 @@ project-robin/
 └── setup.ps1
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 - Windows 10/11 or Linux
@@ -104,7 +104,7 @@ uv sync --python 3.12
 uv run python -m src.main
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 ### Create `.env` File
 
@@ -146,7 +146,7 @@ MAX_COSINE_DISTANCE=0.4
 ADMIN_SECRET_KEY=your-secret-admin-key
 ```
 
-## 🗄 Database Setup
+## Database Setup
 
 ### 1. Enable pgvector Extension
 
@@ -158,9 +158,9 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 Execute `sql/face_embeddings_user_id_schema.sql` in Supabase SQL Editor.
 
-## 📚 API Documentation
+## API Documentation
 
-Interactive docs: **http://localhost:8000/docs**
+Interactive docs: `http://localhost:8000/docs`
 
 ### Endpoints
 
@@ -202,7 +202,7 @@ Interactive docs: **http://localhost:8000/docs**
 }
 ```
 
-## 🐳 Docker Deployment
+## Docker Deployment
 
 ### Quick Start with Docker Compose
 
@@ -274,7 +274,7 @@ docker pull ghcr.io/geber-suprabapak/project-robin:latest
 docker run --gpus all -p 8000:8000 --env-file .env ghcr.io/geber-suprabapak/project-robin:latest
 ```
 
-## ⚡ Performance
+## Performance
 
 | Operation | Time |
 |-----------|------|
@@ -284,7 +284,7 @@ docker run --gpus all -p 8000:8000 --env-file .env ghcr.io/geber-suprabapak/proj
 | DB Search | ~10-20ms |
 | **Total** | **~45-80ms** |
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 ### GPU Not Detected
 ```bash
@@ -299,4 +299,4 @@ Ensure `X-Admin-Key` header matches `ADMIN_SECRET_KEY` in `.env`
 
 ---
 
-**made wit ❤️ by fizrayy **
+**made with ❤️ by fizrayy**
