@@ -299,4 +299,4 @@ Ensure `X-Admin-Key` header matches `ADMIN_SECRET_KEY` in `.env`
 
 ---
 
-**Built with ❤️ using FastAPI, ONNX Runtime, uv, and Supabase**
+**made wit ❤️ by fizrayy **
