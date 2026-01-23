@@ -2,7 +2,7 @@
 
 import logging
 import time
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 
 from src.config import settings
 from src.core.inference_engine import inference_engine
@@ -10,6 +10,7 @@ from src.services.image_decoder import decode_base64_image, preprocess_face_imag
 from src.services.supabase_client import supabase_service
 from src.services.face_detector import validate_single_face, crop_face_from_image, FaceDetectionError
 from src.schemas.api_models import IdentifyRequest, IdentifyResponse, ErrorResponse
+from src.dependencies import verify_client_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Face Recognition"])
@@ -23,10 +24,14 @@ router = APIRouter(prefix="/v1", tags=["Face Recognition"])
     responses={
         200: {"description": "Face identified successfully"},
         400: {"model": ErrorResponse, "description": "Invalid request"},
+        401: {"model": ErrorResponse, "description": "Invalid client key"},
         500: {"model": ErrorResponse, "description": "Server error"}
     }
 )
-async def identify_face(request: IdentifyRequest) -> IdentifyResponse:
+async def identify_face(
+    request: IdentifyRequest,
+    client_key: str = Depends(verify_client_key)
+) -> IdentifyResponse:
     """Identify a person from a face image using GPU-accelerated inference."""
     start_time = time.perf_counter()
     

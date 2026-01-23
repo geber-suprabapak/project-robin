@@ -26,4 +26,13 @@ project-robin/
 - GPU-accelerated face inference
 - Face enrollment with quality check (DNN face detection)
 - Face identification with pgvector similarity search
-- Admin API key protection (`X-Admin-Key` header)
+- Role-based API key protection
+
+## Security Architecture
+- **Role-Based API Keys**:
+  - `X-Admin-Key`: Required for `/v1/enroll` (admin-only, write access)
+  - `X-Client-Key`: Required for `/v1/identify` (kiosk/frontend devices)
+  - Admin key can access all client-protected endpoints (fallback)
+- **Dependencies** (`src/dependencies.py`):
+  - `verify_admin_key`: Validates admin key for sensitive operations
+  - `verify_client_key`: Validates client key OR admin key (admin override)

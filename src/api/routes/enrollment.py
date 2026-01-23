@@ -11,7 +11,7 @@ from src.core.inference_engine import inference_engine
 from src.services.image_decoder import preprocess_face_image
 from src.services.supabase_client import supabase_service
 from src.services.face_detector import validate_single_face, crop_face_from_image
-from src.dependencies import get_admin_api_key
+from src.dependencies import verify_admin_key
 from src.schemas.api_models import EnrollResponse, ErrorResponse
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ async def enroll_student(
     name: str = Form(..., description="Student's full name"),
     nisn: str = Form(..., description="Student's unique ID (NIS/NISN)"),
     class_name: Optional[str] = Form(None, description="Class name (optional)"),
-    admin_key: str = Depends(get_admin_api_key)
+    admin_key: str = Depends(verify_admin_key)
 ) -> EnrollResponse:
     """Enroll a student with multiple face images for improved accuracy."""
     try:

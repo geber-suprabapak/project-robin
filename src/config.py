@@ -79,6 +79,12 @@ class Settings(BaseSettings):
         default="",
         description="Secret key for admin-only endpoints (e.g., enrollment)"
     )
+    
+    # Client Security Configuration
+    client_api_key: str = Field(
+        default="",
+        description="API key for client/kiosk devices (e.g., identification)"
+    )
 
 
 # Global settings instance
