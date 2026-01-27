@@ -54,7 +54,7 @@ if (Test-Path ".env") {
 }
 
 # Check model file
-Write-Host "[6/6] Checking model file..." -ForegroundColor Yellow
+Write-Host "[6/7] Checking model file..." -ForegroundColor Yellow
 if (Test-Path "models/arcface_r100_224x224.onnx") {
     Write-Host "  ✓ Model file found" -ForegroundColor Green
 } else {
@@ -74,6 +74,42 @@ if (Test-Path "models/arcface_r100_224x224.onnx") {
     Write-Host ""
 }
 
+# Check/Download anti-spoofing models
+Write-Host "[7/7] Checking anti-spoofing models..." -ForegroundColor Yellow
+$antiSpoofModelScale27 = "models/anti_spoof_2.7_80x80.onnx"
+$antiSpoofModelScale40 = "models/anti_spoof_4.0_80x80.onnx"
+$downloadBaseUrl = "https://github.com/yakhyo/face-anti-spoofing/releases/download/weights"
+
+if ((Test-Path $antiSpoofModelScale27) -and (Test-Path $antiSpoofModelScale40)) {
+    Write-Host "  ✓ Anti-spoofing models found" -ForegroundColor Green
+} else {
+    Write-Host "  ⚠ Anti-spoofing models not found. Downloading..." -ForegroundColor Yellow
+    
+    # Create models directory if not exists
+    if (-not (Test-Path "models")) {
+        New-Item -ItemType Directory -Path "models" | Out-Null
+    }
+    
+    # Download MiniFASNetV2 model (used for both scales)
+    $sourceModel = "MiniFASNetV2.onnx"
+    $tempPath = "models/$sourceModel"
+    
+    try {
+        Write-Host "  Downloading MiniFASNetV2.onnx..." -ForegroundColor Cyan
+        Invoke-WebRequest -Uri "$downloadBaseUrl/$sourceModel" -OutFile $tempPath -UseBasicParsing
+        
+        # Copy to both scale paths (same model, different scales handled in code)
+        Copy-Item $tempPath $antiSpoofModelScale27
+        Copy-Item $tempPath $antiSpoofModelScale40
+        Remove-Item $tempPath
+        
+        Write-Host "  ✓ Anti-spoofing models downloaded" -ForegroundColor Green
+    } catch {
+        Write-Host "  ✗ Failed to download anti-spoofing models: $_" -ForegroundColor Red
+        Write-Host "  Please download manually from: $downloadBaseUrl" -ForegroundColor Yellow
+    }
+}
+
 Write-Host ""
 Write-Host "=" * 60 -ForegroundColor Cyan
 Write-Host "Setup Complete!" -ForegroundColor Green
@@ -83,8 +119,9 @@ Write-Host ""
 # Check if everything is ready
 $modelExists = Test-Path "models/arcface_r100_224x224.onnx"
 $envExists = Test-Path ".env"
+$antiSpoofExists = (Test-Path $antiSpoofModelScale27) -and (Test-Path $antiSpoofModelScale40)
 
-if ($modelExists -and $envExists) {
+if ($modelExists -and $envExists -and $antiSpoofExists) {
     Write-Host "✅ All requirements met! Ready to start." -ForegroundColor Green
     Write-Host ""
     Write-Host "To start the API server:" -ForegroundColor Cyan
@@ -102,6 +139,9 @@ if ($modelExists -and $envExists) {
     if (-not $envExists) {
         Write-Host "  [ ] Configure .env with Supabase credentials" -ForegroundColor Red
     }
+    if (-not $antiSpoofExists) {
+        Write-Host "  [ ] Download anti-spoofing models to models/" -ForegroundColor Red
+    }
     Write-Host ""
     Write-Host "See README.md for detailed instructions." -ForegroundColor Cyan
     Write-Host ""
@@ -111,3 +151,4 @@ Write-Host "Documentation:" -ForegroundColor Cyan
 Write-Host "  - README.md - Full setup guide" -ForegroundColor White
 Write-Host "  - API Docs: http://localhost:8000/docs (after starting)" -ForegroundColor White
 Write-Host ""
+

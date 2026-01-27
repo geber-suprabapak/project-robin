@@ -84,6 +84,26 @@ class Settings(BaseSettings):
         default="",
         description="Secret key for admin-only endpoints (e.g., enrollment)"
     )
+    
+    # Anti-Spoofing Configuration
+    anti_spoof_enabled: bool = Field(
+        default=True,
+        description="Enable anti-spoofing liveness detection"
+    )
+    anti_spoof_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Minimum liveness score to pass anti-spoofing check (0.0-1.0)"
+    )
+    anti_spoof_model_path_v2_scale27: str = Field(
+        default="./models/anti_spoof_2.7_80x80.onnx",
+        description="Path to MiniFASNetV2 ONNX model for scale 2.7"
+    )
+    anti_spoof_model_path_v2_scale40: str = Field(
+        default="./models/anti_spoof_4.0_80x80.onnx",
+        description="Path to MiniFASNetV2 ONNX model for scale 4.0"
+    )
 
 
 # Global settings instance

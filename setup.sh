@@ -68,7 +68,7 @@ else
 fi
 
 # Check model file
-echo -e "${YELLOW}[6/6] Checking model file...${NC}"
+echo -e "${YELLOW}[6/7] Checking model file...${NC}"
 if [ -f "models/arcface_r100_224x224.onnx" ]; then
     echo -e "${GREEN}  ✓ Model file found${NC}"
 else
@@ -88,6 +88,38 @@ else
     echo ""
 fi
 
+# Check/Download anti-spoofing models
+echo -e "${YELLOW}[7/7] Checking anti-spoofing models...${NC}"
+ANTI_SPOOF_MODEL_SCALE27="models/anti_spoof_2.7_80x80.onnx"
+ANTI_SPOOF_MODEL_SCALE40="models/anti_spoof_4.0_80x80.onnx"
+DOWNLOAD_BASE_URL="https://github.com/yakhyo/face-anti-spoofing/releases/download/weights"
+
+if [ -f "$ANTI_SPOOF_MODEL_SCALE27" ] && [ -f "$ANTI_SPOOF_MODEL_SCALE40" ]; then
+    echo -e "${GREEN}  ✓ Anti-spoofing models found${NC}"
+else
+    echo -e "${YELLOW}  ⚠ Anti-spoofing models not found. Downloading...${NC}"
+    
+    # Create models directory if not exists
+    mkdir -p models
+    
+    # Download MiniFASNetV2 model
+    SOURCE_MODEL="MiniFASNetV2.onnx"
+    TEMP_PATH="models/$SOURCE_MODEL"
+    
+    echo -e "${CYAN}  Downloading MiniFASNetV2.onnx...${NC}"
+    if curl -L -o "$TEMP_PATH" "$DOWNLOAD_BASE_URL/$SOURCE_MODEL" 2>/dev/null || wget -O "$TEMP_PATH" "$DOWNLOAD_BASE_URL/$SOURCE_MODEL" 2>/dev/null; then
+        # Copy to both scale paths (same model, different scales handled in code)
+        cp "$TEMP_PATH" "$ANTI_SPOOF_MODEL_SCALE27"
+        cp "$TEMP_PATH" "$ANTI_SPOOF_MODEL_SCALE40"
+        rm "$TEMP_PATH"
+        
+        echo -e "${GREEN}  ✓ Anti-spoofing models downloaded${NC}"
+    else
+        echo -e "${RED}  ✗ Failed to download anti-spoofing models${NC}"
+        echo -e "${YELLOW}  Please download manually from: $DOWNLOAD_BASE_URL${NC}"
+    fi
+fi
+
 echo ""
 echo -e "${CYAN}============================================================${NC}"
 echo -e "${GREEN}Setup Complete!${NC}"
@@ -97,6 +129,7 @@ echo ""
 # Check if everything is ready
 MODEL_EXISTS=false
 ENV_EXISTS=false
+ANTI_SPOOF_EXISTS=false
 
 if [ -f "models/arcface_r100_224x224.onnx" ]; then
     MODEL_EXISTS=true
@@ -106,7 +139,11 @@ if [ -f ".env" ]; then
     ENV_EXISTS=true
 fi
 
-if [ "$MODEL_EXISTS" = true ] && [ "$ENV_EXISTS" = true ]; then
+if [ -f "$ANTI_SPOOF_MODEL_SCALE27" ] && [ -f "$ANTI_SPOOF_MODEL_SCALE40" ]; then
+    ANTI_SPOOF_EXISTS=true
+fi
+
+if [ "$MODEL_EXISTS" = true ] && [ "$ENV_EXISTS" = true ] && [ "$ANTI_SPOOF_EXISTS" = true ]; then
     echo -e "${GREEN}✅ All requirements met! Ready to start.${NC}"
     echo ""
     echo -e "${CYAN}To start the API server:${NC}"
@@ -124,6 +161,9 @@ else
     if [ "$ENV_EXISTS" = false ]; then
         echo -e "${RED}  [ ] Configure .env with Supabase credentials${NC}"
     fi
+    if [ "$ANTI_SPOOF_EXISTS" = false ]; then
+        echo -e "${RED}  [ ] Download anti-spoofing models to models/${NC}"
+    fi
     echo ""
     echo -e "${CYAN}See README.md for detailed instructions.${NC}"
     echo ""
@@ -133,3 +173,4 @@ echo -e "${CYAN}Documentation:${NC}"
 echo -e "${WHITE}  - README.md - Full setup guide${NC}"
 echo -e "${WHITE}  - API Docs: http://localhost:8000/docs (after starting)${NC}"
 echo ""
+

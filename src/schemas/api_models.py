@@ -43,7 +43,7 @@ class IdentifyResponse(BaseModel):
     
     status: str = Field(
         ...,
-        description="Status of the operation (ok, error, not_found)"
+        description="Status of the operation (ok, error, not_found, spoof_detected)"
     )
     student_id: Optional[str] = Field(
         None,
@@ -56,6 +56,16 @@ class IdentifyResponse(BaseModel):
     confidence: Optional[float] = Field(
         None,
         description="Match confidence score (0.0 to 1.0)",
+        ge=0.0,
+        le=1.0
+    )
+    is_live: Optional[bool] = Field(
+        None,
+        description="Liveness check result (True = real face, False = spoof detected)"
+    )
+    liveness_score: Optional[float] = Field(
+        None,
+        description="Liveness confidence score (0.0 = fake, 1.0 = real)",
         ge=0.0,
         le=1.0
     )
@@ -76,6 +86,8 @@ class IdentifyResponse(BaseModel):
                 "student_id": "12345678",
                 "student_name": "Ahmad Rizki",
                 "confidence": 0.95,
+                "is_live": True,
+                "liveness_score": 0.89,
                 "process_time_ms": 45,
                 "message": "Face identified successfully"
             }

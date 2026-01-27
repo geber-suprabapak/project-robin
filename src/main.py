@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.config import settings
 from src.core.inference_engine import inference_engine
 from src.services.supabase_client import supabase_service
+from src.services.anti_spoof_detector import anti_spoof_detector
 from src.api.routes import health, identification, enrollment
 from src.api.exceptions import http_exception_handler, general_exception_handler
 
@@ -32,6 +33,15 @@ async def lifespan(app: FastAPI):
         logger.info("🔥 Warming up inference engine...")
         inference_engine.warmup()
         
+        # Load anti-spoofing models (if enabled)
+        if settings.anti_spoof_enabled:
+            logger.info("🛡️ Loading anti-spoofing models...")
+            anti_spoof_detector.load_models()
+            anti_spoof_detector.warmup()
+            logger.info("✅ Anti-spoofing enabled")
+        else:
+            logger.info("⚠️ Anti-spoofing disabled")
+        
         if supabase_service.is_connected():
             logger.info("✅ Supabase client connected")
         else:
@@ -41,6 +51,7 @@ async def lifespan(app: FastAPI):
         logger.info(f"✅ Server ready on {settings.api_host}:{settings.api_port}")
         logger.info(f"📊 GPU Enabled: {inference_engine.is_gpu_enabled()}")
         logger.info(f"🔧 Provider: {inference_engine.get_provider()}")
+        logger.info(f"🛡️ Anti-Spoof: {settings.anti_spoof_enabled}")
         logger.info(f"🌍 Environment: {settings.environment}")
         logger.info("=" * 60)
     except Exception as e:
