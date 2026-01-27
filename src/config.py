@@ -59,6 +59,10 @@ class Settings(BaseSettings):
         default="",
         description="Supabase service role key (admin access)"
     )
+    supabase_jwt_secret: str = Field(
+        default="",
+        description="Supabase JWT secret for verifying session tokens"
+    )
     
     # Face Recognition Configuration
     face_match_threshold: float = Field(
@@ -78,12 +82,6 @@ class Settings(BaseSettings):
     admin_secret_key: str = Field(
         default="",
         description="Secret key for admin-only endpoints (e.g., enrollment)"
-    )
-    
-    # Client Security Configuration
-    client_api_key: str = Field(
-        default="",
-        description="API key for client/kiosk devices (e.g., identification)"
     )
 
 

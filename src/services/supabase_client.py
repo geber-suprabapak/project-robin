@@ -55,6 +55,21 @@ class SupabaseService:
             logger.error(f"Error fetching user profile: {str(e)}")
             return None
     
+    async def get_user_profile_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve user profile by user_id from user_profiles table."""
+        if not self.is_connected():
+            logger.warning("Supabase not connected. Cannot fetch user profile.")
+            return None
+        
+        try:
+            response = self.client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching user profile by id: {str(e)}")
+            return None
+    
     async def get_student_by_user_id(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve student info by user_id using RPC function."""
         if not self.is_connected():
@@ -138,6 +153,69 @@ class SupabaseService:
             
         except Exception as e:
             logger.error(f"Error during face match search: {str(e)}")
+            return None
+
+    async def verify_face_1to1(
+        self,
+        user_id: str,
+        embedding: np.ndarray,
+        threshold: float = 0.6
+    ) -> Optional[Dict[str, Any]]:
+        """
+        1:1 Face verification - compare embedding against user's enrolled embeddings only.
+        
+        More secure and faster than 1:N matching since it only checks against
+        the authenticated user's registered face embeddings.
+        
+        Args:
+            user_id: The user_id from JWT 'sub' claim
+            embedding: The query embedding to verify
+            threshold: Minimum confidence threshold (default 0.6)
+            
+        Returns:
+            Dict with verification result, or None if error/no embeddings found
+        """
+        if not self.is_connected():
+            logger.warning("Supabase not connected. Cannot verify face.")
+            return None
+        
+        try:
+            embedding_list = embedding.tolist()
+            
+            response = self.client.rpc(
+                "verify_face_1to1",
+                {
+                    "p_user_id": user_id,
+                    "query_embedding": embedding_list,
+                    "match_threshold": threshold
+                }
+            ).execute()
+            
+            if not response.data or len(response.data) == 0:
+                logger.info(f"No embeddings found for user_id {user_id}")
+                return None
+            
+            result = response.data[0]
+            verified = result.get("verified", False)
+            confidence = result.get("confidence", 0.0)
+            distance = result.get("distance", 1.0)
+            best_match_index = result.get("best_match_index", 0)
+            
+            logger.info(
+                f"1:1 Verification - user_id: {user_id}, "
+                f"verified: {verified}, confidence: {confidence:.3f}, "
+                f"distance: {distance:.3f}, best_index: {best_match_index}"
+            )
+            
+            return {
+                "verified": verified,
+                "confidence": confidence,
+                "distance": distance,
+                "best_match_index": best_match_index
+            }
+            
+        except Exception as e:
+            logger.error(f"Error during 1:1 face verification: {str(e)}")
             return None
 
     async def delete_user_embeddings(self, user_id: str) -> int:
