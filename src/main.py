@@ -82,4 +82,14 @@ app.add_exception_handler(Exception, general_exception_handler)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("src.main:app", host=settings.api_host, port=settings.api_port, reload=settings.environment == "development", log_level="info")
+    
+    is_dev = settings.environment == "development"
+    
+    uvicorn.run(
+        "src.main:app", 
+        host=settings.api_host, 
+        port=settings.api_port, 
+        reload=is_dev,
+        workers=settings.api_workers if not is_dev else None,
+        log_level="info"
+    )
