@@ -231,74 +231,58 @@ Performs 1:1 face verification against the authenticated user's enrolled embeddi
 
 ## Docker Deployment
 
+The project has been reorganized to support both CPU and GPU runtimes using a unified Docker setup.
+
 ### Quick Start with Docker Compose
 
+**Option 1: CPU (Default/Recommended)**
+Use the `api-cpu` profile. Ideal for local development and environments without NVIDIA GPUs.
 ```bash
-docker-compose up -d
+docker compose --profile cpu up -d
 ```
+*Note: This image is significantly smaller and faster to pull.*
 
-### Building Docker Images
-
-#### Local Build (Testing)
-
-Build Docker image locally without pushing to registry:
-
-**Windows (PowerShell):**
-```powershell
-.\scripts\build-local.ps1              # Build with 'latest' tag
-.\scripts\build-local.ps1 -Tag "dev"   # Build with custom tag
-.\scripts\build-local.ps1 -NoCache     # Build without cache
-```
-
-**Linux/macOS (Bash):**
+**Option 2: GPU (NVIDIA)**
+Use the `api-gpu` profile for heavy production loads. Requires NVIDIA Container Toolkit.
 ```bash
-./scripts/build-local.sh               # Build with 'latest' tag
-./scripts/build-local.sh -t "dev"      # Build with custom tag
-./scripts/build-local.sh --no-cache    # Build without cache
+docker compose --profile gpu up -d
 ```
 
-#### Production Build (GHCR)
+### Build Commands (Makefile)
 
-Build and push to GitHub Container Registry:
+We use a `Makefile` to simplify building and pushing images.
 
-**Prerequisites:**
-1. Add GHCR credentials to `.env`:
-   ```ini
-   GHCR_USERNAME=your-github-username
-   GHCR_TOKEN=ghp_xxxxxxxxxxxxx  # GitHub Personal Access Token
-   ```
-2. Ensure your PAT has `write:packages` scope
+| Command | Description |
+|---------|-------------|
+| `make build` | Build CPU image (Default) |
+| `make up-cpu` | Start CPU stack |
+| `make up-gpu` | Start GPU stack |
+| `make down`  | Stop all services |
+| `make push-cpu` | Push CPU image to Registry |
+| `make push-gpu` | Push GPU image to Registry |
 
-**Windows (PowerShell):**
-```powershell
-.\scripts\build-prod.ps1               # Build and push with 'latest' tag
-.\scripts\build-prod.ps1 -Tag "v1.0.0" # Build and push with version tag
-```
+**Manual Build (if Makefile not available)**:
 
-**Linux/macOS (Bash):**
+*CPU*:
 ```bash
-./scripts/build-prod.sh                # Build and push with 'latest' tag
-./scripts/build-prod.sh -t "v1.0.0"    # Build and push with version tag
+docker build -t project-robin:cpu-latest --build-arg RUNTIME_TYPE=cpu --build-arg BASE_IMAGE=python:3.12-slim-bookworm -f docker/Dockerfile .
 ```
 
-**Image Registry:** `ghcr.io/geber-suprabapak/project-robin`
+*GPU*:
+```bash
+docker build -t project-robin:latest --build-arg RUNTIME_TYPE=gpu --build-arg BASE_IMAGE=nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 -f docker/Dockerfile .
+```
 
-### Running Docker Image
+### Running Docker Image Manually
 
-**With GPU support:**
+**CPU:**
+```bash
+docker run -p 8000:8000 --env-file .env project-robin:cpu-latest
+```
+
+**GPU:**
 ```bash
 docker run --gpus all -p 8000:8000 --env-file .env project-robin:latest
-```
-
-**CPU only:**
-```bash
-docker run -p 8000:8000 --env-file .env project-robin:latest
-```
-
-**From GHCR:**
-```bash
-docker pull ghcr.io/geber-suprabapak/project-robin:latest
-docker run --gpus all -p 8000:8000 --env-file .env ghcr.io/geber-suprabapak/project-robin:latest
 ```
 
 ## Performance

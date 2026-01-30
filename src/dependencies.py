@@ -1,37 +1,11 @@
 """
 FastAPI dependencies for the Face Recognition API.
+
+Provides authentication and authorization utilities.
 """
 
 from fastapi import Header, HTTPException, status
 from src.config import settings
-
-
-async def verify_admin_key(x_admin_key: str = Header(..., alias="X-Admin-Key")) -> str:
-    """
-    Dependency to validate admin API key.
-    
-    Args:
-        x_admin_key: Admin secret key from X-Admin-Key header
-        
-    Returns:
-        The validated API key
-        
-    Raises:
-        HTTPException: If key is missing or invalid
-    """
-    if not settings.admin_secret_key:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Admin authentication not configured"
-        )
-    
-    if x_admin_key != settings.admin_secret_key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid admin key"
-        )
-    
-    return x_admin_key
 
 
 async def verify_jwt_bearer(authorization: str = Header(..., alias="Authorization")) -> str:
@@ -49,6 +23,14 @@ async def verify_jwt_bearer(authorization: str = Header(..., alias="Authorizatio
         
     Raises:
         HTTPException: 401 if token is missing, invalid, or expired
+        HTTPException: 500 if JWT secret is not configured
+        
+    Example:
+        ```python
+        @app.post("/protected")
+        async def protected_route(user_id: str = Depends(verify_jwt_bearer)):
+            return {"user_id": user_id}
+        ```
     """
     import jwt
     
@@ -97,4 +79,3 @@ async def verify_jwt_bearer(authorization: str = Header(..., alias="Authorizatio
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid token: {str(e)}"
         )
-

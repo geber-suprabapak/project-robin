@@ -60,6 +60,8 @@ class Settings(BaseSettings):
         default="",
         description="Supabase service role key (admin access)"
     )
+    
+    # Security - JWT
     supabase_jwt_secret: str = Field(
         default="",
         description="Supabase JWT secret for verifying session tokens"
@@ -79,10 +81,13 @@ class Settings(BaseSettings):
         description="Maximum cosine distance for face matching"
     )
     
-    # Admin Security Configuration
+    
+    # Security - Admin (DEPRECATED)
+    # Note: Admin Key authentication is deprecated as of Qdrant migration.
+    # All endpoints now use JWT Bearer tokens for authentication.
     admin_secret_key: str = Field(
         default="",
-        description="Secret key for admin-only endpoints (e.g., enrollment)"
+        description="[DEPRECATED] Admin secret key (no longer used in any endpoints)"
     )
     
     # Qdrant Configuration
