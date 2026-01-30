@@ -18,10 +18,13 @@ LABEL maintainer="LunaraDev"
 LABEL description="Face Recognition API"
 LABEL version="2.0.0"
 
-# Prevent interactive prompts
+# Prevent interactive prompts and configure uv for Docker
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
 
 # Install system dependencies
 # libgl1-mesa-glx and libglib2.0-0: for OpenCV
@@ -90,5 +93,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run the application
-CMD ["uv", "run", "python", "-m", "src.main"]
+# Run the application using the already-installed virtual environment
+# This avoids running `uv sync` again at container startup
+CMD ["/app/.venv/bin/python", "-m", "src.main"]
