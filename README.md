@@ -25,7 +25,7 @@ A REST API for face recognition, powered by the ArcFace ONNX model. It supports 
 - **Clean Architecture**: Code is organized into modular layers (api, core, services, schemas).
 - **Supabase Integration**: Uses PostgreSQL and pgvector for similarity search.
 - **Docker Ready**: Supports NVIDIA runtime for containerized deployment.
-- **Role-Based API Keys**: Two-tier security with Admin and Client keys.
+- **JWT Authentication**: Secure session-based auth using Supabase JWT tokens.
 
 ## Architecture
 
@@ -133,6 +133,7 @@ ENVIRONMENT=development
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_JWT_SECRET=your-jwt-secret       # Dashboard → Settings → API → JWT Secret
 
 # GHCR (GitHub Container Registry) - for Docker builds
 GHCR_USERNAME=your-github-username
@@ -144,7 +145,6 @@ MAX_COSINE_DISTANCE=0.4
 
 # Security
 ADMIN_SECRET_KEY=your-secret-admin-key    # For /v1/enroll (admin-only)
-CLIENT_API_KEY=your-client-api-key        # For /v1/identify (kiosk devices)
 ```
 
 ## Database Setup
@@ -184,13 +184,14 @@ Interactive docs: `http://localhost:8000/docs`
 
 ### `POST /v1/identify`
 
-**Headers**: `X-Client-Key: your-client-api-key` (or `X-Admin-Key` for admin override)
+**Headers**: `Authorization: Bearer <supabase_session_token>`
+
+Requires a valid Supabase JWT session token. The server verifies the token signature and checks that the user exists in the database.
 
 **Request (JSON)**:
 ```json
 {
-  "image_base64": "<base64-encoded-image>",
-  "camera_id": "kiosk_001"
+  "image_base64": "<base64-encoded-image>"
 }
 ```
 
@@ -297,9 +298,9 @@ uv run python -c "import onnxruntime as ort; print(ort.get_available_providers()
 ### Model Loading Error
 Ensure model is at `./models/arcface_r100_224x224.onnx`
 
-### Invalid API Key (401)
+### Authentication Errors (401)
 - **For `/v1/enroll`**: Ensure `X-Admin-Key` header matches `ADMIN_SECRET_KEY` in `.env`
-- **For `/v1/identify`**: Ensure `X-Client-Key` header matches `CLIENT_API_KEY` in `.env` (or use `X-Admin-Key` as admin override)
+- **For `/v1/identify`**: Ensure valid Supabase JWT token in `Authorization: Bearer <token>` header. Check that `SUPABASE_JWT_SECRET` is correctly configured.
 
 ---
 

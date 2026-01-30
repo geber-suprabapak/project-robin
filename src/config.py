@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     # API Server Configuration
     api_host: str = Field(default="0.0.0.0", description="API server host")
     api_port: int = Field(default=8000, description="API server port")
+    api_workers: int = Field(default=1, description="Number of uvicorn workers")
     environment: str = Field(default="development", description="Environment")
     
     # Supabase Configuration
@@ -58,6 +59,10 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = Field(
         default="",
         description="Supabase service role key (admin access)"
+    )
+    supabase_jwt_secret: str = Field(
+        default="",
+        description="Supabase JWT secret for verifying session tokens"
     )
     
     # Face Recognition Configuration
@@ -78,12 +83,6 @@ class Settings(BaseSettings):
     admin_secret_key: str = Field(
         default="",
         description="Secret key for admin-only endpoints (e.g., enrollment)"
-    )
-    
-    # Client Security Configuration
-    client_api_key: str = Field(
-        default="",
-        description="API key for client/kiosk devices (e.g., identification)"
     )
 
 

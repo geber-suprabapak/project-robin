@@ -15,12 +15,6 @@ class IdentifyRequest(BaseModel):
         description="Base64-encoded image string",
         min_length=100
     )
-    camera_id: str = Field(
-        ...,
-        description="Camera/kiosk identifier",
-        min_length=1,
-        max_length=50
-    )
     
     @validator("image_base64")
     def validate_base64(cls, v: str) -> str:
@@ -39,8 +33,7 @@ class IdentifyRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-                "camera_id": "kiosk_001"
+                "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
             }
         }
 

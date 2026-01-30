@@ -34,50 +34,67 @@ async def verify_admin_key(x_admin_key: str = Header(..., alias="X-Admin-Key")) 
     return x_admin_key
 
 
-async def verify_client_key(
-    x_client_key: str = Header(None, alias="X-Client-Key"),
-    x_admin_key: str = Header(None, alias="X-Admin-Key")
-) -> str:
+async def verify_jwt_bearer(authorization: str = Header(..., alias="Authorization")) -> str:
     """
-    Dependency to validate client API key.
+    Dependency to verify Supabase JWT Bearer token.
     
-    Accepts either:
-    - X-Client-Key header (for kiosk/frontend devices)
-    - X-Admin-Key header (admin can access all endpoints)
+    Extracts the Bearer token from Authorization header, verifies signature
+    using SUPABASE_JWT_SECRET, and returns the user_id from 'sub' claim.
     
     Args:
-        x_client_key: Client key from X-Client-Key header
-        x_admin_key: Admin key from X-Admin-Key header (fallback)
+        authorization: Authorization header value (Bearer <token>)
         
     Returns:
-        The validated API key
+        The user_id (sub claim) from the verified JWT
         
     Raises:
-        HTTPException: 401 if no valid key provided
+        HTTPException: 401 if token is missing, invalid, or expired
     """
-    # Check admin key first (admin can do everything)
-    if x_admin_key and settings.admin_secret_key:
-        if x_admin_key == settings.admin_secret_key:
-            return x_admin_key
+    import jwt
     
-    # Check client key configuration
-    if not settings.client_api_key:
+    # Check JWT secret is configured
+    if not settings.supabase_jwt_secret:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Client authentication not configured"
+            detail="JWT authentication not configured"
         )
     
-    # Validate client key
-    if not x_client_key:
+    # Extract Bearer token
+    if not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Client Key"
+            detail="Invalid authorization header format. Expected 'Bearer <token>'"
         )
     
-    if x_client_key != settings.client_api_key:
+    token = authorization[7:]  # Remove "Bearer " prefix
+    
+    try:
+        # Decode and verify JWT
+        payload = jwt.decode(
+            token,
+            settings.supabase_jwt_secret,
+            algorithms=["HS256"],
+            audience="authenticated",
+            options={"require": ["sub", "exp"]}
+        )
+        
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token missing user identifier"
+            )
+        
+        return user_id
+        
+    except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Client Key"
+            detail="Token has expired"
         )
-    
-    return x_client_key
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid token: {str(e)}"
+        )
+

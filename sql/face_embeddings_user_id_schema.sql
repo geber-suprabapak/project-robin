@@ -237,6 +237,43 @@ DROP FUNCTION IF EXISTS insert_face_embedding(TEXT, UUID, vector, INT, TEXT, FLO
 DROP FUNCTION IF EXISTS upsert_face_embedding(TEXT, UUID, vector, TEXT, FLOAT);
 
 -- ============================================================================
+-- Step 11: 1:1 Face Verification (verify against specific user only)
+-- ============================================================================
+CREATE OR REPLACE FUNCTION verify_face_1to1(
+    p_user_id UUID,
+    query_embedding vector(512),
+    match_threshold FLOAT DEFAULT 0.6
+)
+RETURNS TABLE (
+    verified BOOLEAN,
+    confidence FLOAT,
+    distance FLOAT,
+    best_match_index INT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+    -- Compare query embedding against user's enrolled embeddings only
+    -- Returns the best matching result if above threshold
+    RETURN QUERY
+    SELECT 
+        (1.0 - (fe.embedding <=> query_embedding))::FLOAT >= match_threshold AS verified,
+        (1.0 - (fe.embedding <=> query_embedding))::FLOAT AS confidence,
+        (fe.embedding <=> query_embedding)::FLOAT AS distance,
+        fe.image_index AS best_match_index
+    FROM face_embeddings fe
+    WHERE fe.user_id = p_user_id
+    ORDER BY fe.embedding <=> query_embedding ASC
+    LIMIT 1;
+END;
+$$;
+
+-- Grant execute permission
+GRANT EXECUTE ON FUNCTION verify_face_1to1(UUID, vector, FLOAT) TO service_role;
+GRANT EXECUTE ON FUNCTION verify_face_1to1(UUID, vector, FLOAT) TO authenticated;
+
+-- ============================================================================
 -- Comments
 -- ============================================================================
 COMMENT ON FUNCTION find_face_match(vector, FLOAT, INT) IS 'Find matching faces, returns user_id only for server-side lookup';
@@ -244,3 +281,5 @@ COMMENT ON FUNCTION insert_face_embedding(UUID, vector, INT, FLOAT) IS 'Insert f
 COMMENT ON FUNCTION delete_user_embeddings(UUID) IS 'Delete all embeddings for a user';
 COMMENT ON FUNCTION count_user_embeddings(UUID) IS 'Count total embeddings for a user';
 COMMENT ON FUNCTION get_student_by_user_id(UUID) IS 'Lookup student info by user_id from user_profiles and biodata_siswa';
+COMMENT ON FUNCTION verify_face_1to1(UUID, vector, FLOAT) IS '1:1 face verification - compare embedding against specific user embeddings only';
+
