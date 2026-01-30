@@ -85,11 +85,23 @@ if __name__ == "__main__":
     
     is_dev = settings.environment == "development"
     
+    # Uvicorn does not support using reload with multiple workers.
+    # In development (reload=True), always run with a single process (workers=None).
+    workers = settings.api_workers
+    if is_dev:
+        if workers not in (None, 1):
+            logger.warning(
+                "api_workers=%s is ignored in development because uvicorn does not "
+                "support reload with multiple workers. Falling back to workers=None.",
+                workers,
+            )
+        workers = None
+    
     uvicorn.run(
         "src.main:app", 
         host=settings.api_host, 
         port=settings.api_port, 
         reload=is_dev,
-        workers=settings.api_workers if not is_dev else None,
+        workers=workers,
         log_level="info"
     )
