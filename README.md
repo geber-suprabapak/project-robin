@@ -1,6 +1,6 @@
 # Face Recognition API (FaceVector-Core)
 
-A REST API for face recognition, powered by the ArcFace ONNX model. It supports GPU acceleration (CUDA) and uses Supabase for vector storage.
+A REST API for face recognition, powered by the ArcFace ONNX model. It supports GPU acceleration (CUDA) and uses **Qdrant** for vector storage with **Supabase** for user profiles.
 
 ## Table of Contents
 
@@ -17,15 +17,17 @@ A REST API for face recognition, powered by the ArcFace ONNX model. It supports 
 ## Features
 
 - **GPU-Accelerated Inference**: Uses CUDA if available, otherwise falls back to CPU.
-- **Multi-Image Enrollment**: Accepts 10-20 training images per user to improve accuracy.
+- **Multi-Image Enrollment**: Requires exactly 10 training images per user for improved accuracy.
 - **Auto Face Cropping**: Automatically detects and crops faces from input images.
-- **Face Identification**: Matches faces against the database in real-time.
+- **Face Identification**: 1:1 face verification against user's enrolled embeddings.
 - **Singleton Pattern**: Loads the model once to save memory.
 - **Thread-Safe**: Handles concurrent requests safely.
 - **Clean Architecture**: Code is organized into modular layers (api, core, services, schemas).
-- **Supabase Integration**: Uses PostgreSQL and pgvector for similarity search.
+- **Qdrant Vector Database**: High-performance vector storage for face embeddings.
+- **Supabase Integration**: Uses PostgreSQL for user profile management.
 - **Docker Ready**: Supports NVIDIA runtime for containerized deployment.
 - **JWT Authentication**: Secure session-based auth using Supabase JWT tokens.
+- **Self-Serve Enrollment**: Users can enroll their own face via JWT authentication.
 
 ## Architecture
 
@@ -54,7 +56,8 @@ project-robin/
 │   │   ├── __init__.py
 │   │   ├── image_decoder.py          # Base64 → numpy, preprocessing
 │   │   ├── face_detector.py          # DNN face detection + cropping
-│   │   └── supabase_client.py        # Database operations
+│   │   ├── qdrant_client.py          # Qdrant vector operations
+│   │   └── supabase_client.py        # User profile operations
 │   │
 │   └── schemas/                      # Pydantic models
 │       ├── __init__.py
@@ -143,9 +146,30 @@ GHCR_TOKEN=ghp_xxxxxxxxxxxxx  # Personal Access Token with write:packages scope
 FACE_MATCH_THRESHOLD=0.6
 MAX_COSINE_DISTANCE=0.4
 
-# Security
-ADMIN_SECRET_KEY=your-secret-admin-key    # For /v1/enroll (admin-only)
+# Qdrant Vector Database
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+QDRANT_COLLECTION_NAME=face_embeddings
+QDRANT_API_KEY=                        # Optional, for Qdrant Cloud
+
+# Security (optional, no longer required for enrollment)
+ADMIN_SECRET_KEY=your-secret-admin-key
 ```
+
+## Qdrant Setup
+
+### 1. Start Qdrant (Docker)
+
+```bash
+docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
+```
+
+### 2. Collection Auto-Creation
+
+The API automatically creates the `face_embeddings` collection on startup with:
+- **Vector dimension**: 512 (ArcFace)
+- **Distance metric**: Cosine
+- **Payload index**: `user_id` for fast filtering
 
 ## Database Setup
 
@@ -169,24 +193,23 @@ Interactive docs: `http://localhost:8000/docs`
 |--------|------|-------------|
 | GET | `/` | API info |
 | GET | `/health` | Health check |
-| POST | `/v1/identify` | Identify face |
-| POST | `/v1/enroll` | Enroll student (10-20 images) |
+| POST | `/v1/identify` | 1:1 Face verification |
+| POST | `/v1/enroll` | Self-serve enrollment (10 images) |
 
 ### `POST /v1/enroll`
 
-**Headers**: `X-Admin-Key: your-admin-secret-key`
+> **⚠️ Breaking Change**: Enrollment is now self-serve with JWT authentication. Admin key is no longer required.
+
+**Headers**: `Authorization: Bearer <supabase_session_token>`
 
 **Request (multipart/form-data)**:
-- `files`: 10-20 face images (JPG/PNG)
-- `name`: Student's full name
-- `nisn`: Student ID (NIS/NISN)
-- `class_name`: Class name (optional)
+- `files`: Exactly 10 face images (JPG/PNG)
 
 ### `POST /v1/identify`
 
 **Headers**: `Authorization: Bearer <supabase_session_token>`
 
-Requires a valid Supabase JWT session token. The server verifies the token signature and checks that the user exists in the database.
+Performs 1:1 face verification against the authenticated user's enrolled embeddings. Uses manual cosine similarity calculation (no ANN search).
 
 **Request (JSON)**:
 ```json
@@ -299,8 +322,14 @@ uv run python -c "import onnxruntime as ort; print(ort.get_available_providers()
 Ensure model is at `./models/arcface_r100_224x224.onnx`
 
 ### Authentication Errors (401)
-- **For `/v1/enroll`**: Ensure `X-Admin-Key` header matches `ADMIN_SECRET_KEY` in `.env`
-- **For `/v1/identify`**: Ensure valid Supabase JWT token in `Authorization: Bearer <token>` header. Check that `SUPABASE_JWT_SECRET` is correctly configured.
+- **For `/v1/enroll`**: Ensure valid Supabase JWT token in `Authorization: Bearer <token>` header.
+- **For `/v1/identify`**: Same as above. Check that `SUPABASE_JWT_SECRET` is correctly configured.
+
+### Qdrant Connection Failed
+Ensure Qdrant is running at the configured host:port. Check with:
+```bash
+curl http://localhost:6333/collections
+```
 
 ---
 

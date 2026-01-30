@@ -108,6 +108,7 @@ class HealthResponse(BaseModel):
     model_loaded: bool = Field(..., description="Whether ONNX model is loaded")
     gpu_available: bool = Field(..., description="Whether GPU is available")
     supabase_connected: bool = Field(..., description="Whether Supabase is connected")
+    qdrant_connected: bool = Field(..., description="Whether Qdrant is connected")
     
     class Config:
         json_schema_extra = {
@@ -115,7 +116,8 @@ class HealthResponse(BaseModel):
                 "status": "healthy",
                 "model_loaded": True,
                 "gpu_available": True,
-                "supabase_connected": True
+                "supabase_connected": True,
+                "qdrant_connected": True
             }
         }
 

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from src.config import settings
 from src.core.inference_engine import inference_engine
 from src.services.image_decoder import decode_base64_image, preprocess_face_image, ImageDecodeError
+from src.services.qdrant_client import qdrant_service
 from src.services.supabase_client import supabase_service
 from src.services.face_detector import validate_single_face, crop_face_from_image, FaceDetectionError
 from src.schemas.api_models import IdentifyRequest, IdentifyResponse, ErrorResponse
@@ -75,10 +76,10 @@ async def identify_face(
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Processing failed: {e}")
         
-        # Step 5: 1:1 Face Verification (compare against THIS user's embeddings only)
-        verify_result = await supabase_service.verify_face_1to1(
+        # Step 5: 1:1 Face Verification using Qdrant (manual similarity, no ANN)
+        verify_result = await qdrant_service.verify_face_1to1(
             user_id=user_id,
-            embedding=embedding,
+            query_embedding=embedding,
             threshold=settings.face_match_threshold
         )
         process_time_ms = int((time.perf_counter() - start_time) * 1000)

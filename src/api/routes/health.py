@@ -3,6 +3,7 @@
 from typing import Dict
 from fastapi import APIRouter
 from src.core.inference_engine import inference_engine
+from src.services.qdrant_client import qdrant_service
 from src.services.supabase_client import supabase_service
 from src.schemas.api_models import HealthResponse
 
@@ -16,7 +17,8 @@ async def health_check() -> HealthResponse:
         status="healthy",
         model_loaded=inference_engine.is_loaded(),
         gpu_available=inference_engine.is_gpu_enabled(),
-        supabase_connected=supabase_service.is_connected()
+        supabase_connected=supabase_service.is_connected(),
+        qdrant_connected=qdrant_service.is_connected()
     )
 
 

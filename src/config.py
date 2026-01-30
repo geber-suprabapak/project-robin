@@ -84,6 +84,28 @@ class Settings(BaseSettings):
         default="",
         description="Secret key for admin-only endpoints (e.g., enrollment)"
     )
+    
+    # Qdrant Configuration
+    qdrant_host: str = Field(
+        default="localhost",
+        description="Qdrant host (localhost for Docker, or Qdrant Cloud URL)"
+    )
+    qdrant_port: int = Field(
+        default=6333,
+        description="Qdrant REST API port"
+    )
+    qdrant_collection_name: str = Field(
+        default="face_embeddings",
+        description="Qdrant collection name for face embeddings"
+    )
+    qdrant_api_key: str = Field(
+        default="",
+        description="Qdrant API key (optional, for Qdrant Cloud)"
+    )
+    qdrant_https: bool = Field(
+        default=False,
+        description="Whether to use HTTPS for Qdrant connection"
+    )
 
 
 # Global settings instance
