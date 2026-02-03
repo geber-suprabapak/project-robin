@@ -21,9 +21,9 @@ services:
       API_PORT: "8000"
       ENVIRONMENT: "${ENVIRONMENT:-production}"
       # Model Config
-      MODEL_PATH: "/app/models/arcface_r100_224x224.onnx"
-      MODEL_INPUT_SIZE: "224"
-      GPU_DEVICE_ID: "-1"
+      MODEL_PATH: "${MODEL_PATH}"
+      MODEL_INPUT_SIZE: "${MODEL_INPUT_SIZE}"
+      GPU_DEVICE_ID: "${GPU_DEVICE_ID}"
       # Supabase
       SUPABASE_URL: "${SUPABASE_URL}"
       SUPABASE_KEY: "${SUPABASE_KEY}"
@@ -32,6 +32,7 @@ services:
       # Qdrant (External)
       QDRANT_HOST: "${QDRANT_HOST}"
       QDRANT_PORT: "${QDRANT_PORT:-6333}"
+      QDRANT_HTTPS: "${QDRANT_HTTPS:-false}"
       QDRANT_COLLECTION_NAME: "${QDRANT_COLLECTION_NAME:-face_embeddings}"
       QDRANT_API_KEY: "${QDRANT_API_KEY}"
     ports:
