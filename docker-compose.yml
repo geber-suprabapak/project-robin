@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # ==========================================
   # CPU Profile (Default/Preferred)
@@ -19,6 +17,7 @@ services:
       # API Config
       API_HOST: "0.0.0.0"
       API_PORT: "8000"
+      API_WORKERS: "${API_WORKERS:-4}"
       ENVIRONMENT: "${ENVIRONMENT:-production}"
       # Model Config
       MODEL_PATH: "${MODEL_PATH}"
