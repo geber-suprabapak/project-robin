@@ -18,7 +18,7 @@ async def health_check() -> HealthResponse:
         model_loaded=inference_engine.is_loaded(),
         gpu_available=inference_engine.is_gpu_enabled(),
         supabase_connected=supabase_service.is_connected(),
-        qdrant_connected=qdrant_service.is_connected()
+        qdrant_connected=await qdrant_service.is_connected()
     )
 
 
