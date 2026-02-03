@@ -161,3 +161,30 @@ class EnrollResponse(BaseModel):
                 "message": "Student enrolled successfully with 15 face images"
             }
         }
+
+
+class EnrollStatusResponse(BaseModel):
+    """Response model for enrollment status check endpoint."""
+    
+    is_enrolled: bool = Field(
+        ...,
+        description="Whether user has face embeddings enrolled"
+    )
+    embedding_count: int = Field(
+        ...,
+        description="Number of face embeddings stored for this user",
+        ge=0
+    )
+    user_id: str = Field(
+        ...,
+        description="User ID from JWT token"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "is_enrolled": True,
+                "embedding_count": 10,
+                "user_id": "550e8400-e29b-41d4-a716-446655440000"
+            }
+        }

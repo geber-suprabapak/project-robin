@@ -13,12 +13,46 @@ from src.services.qdrant_client import qdrant_service
 from src.services.supabase_client import supabase_service
 from src.services.face_detector import validate_single_face, crop_face_from_image
 from src.dependencies import verify_jwt_bearer
-from src.schemas.api_models import EnrollResponse, ErrorResponse
+from src.schemas.api_models import EnrollResponse, EnrollStatusResponse, ErrorResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Face Recognition"])
 
 REQUIRED_IMAGES = 10
+
+
+@router.get(
+    "/enroll/status",
+    response_model=EnrollStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Check user enrollment status",
+    responses={
+        200: {"description": "Enrollment status retrieved"},
+        401: {"model": ErrorResponse, "description": "Invalid or expired JWT token"},
+        500: {"model": ErrorResponse, "description": "Server error"}
+    }
+)
+async def check_enrollment_status(
+    user_id: str = Depends(verify_jwt_bearer)
+) -> EnrollStatusResponse:
+    """
+    Check if current user has face embeddings enrolled.
+    
+    Requires a valid Supabase JWT Bearer token in Authorization header.
+    """
+    try:
+        count = await qdrant_service.get_user_embedding_count(user_id)
+        return EnrollStatusResponse(
+            is_enrolled=count > 0,
+            embedding_count=count,
+            user_id=user_id
+        )
+    except Exception as e:
+        logger.exception(f"Error checking enrollment status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check enrollment status: {e}"
+        )
 
 
 @router.post(
