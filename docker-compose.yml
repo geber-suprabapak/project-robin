@@ -1,14 +1,64 @@
-version: '3.8'
-
 services:
-  face-recognition-api:
+  # ==========================================
+  # CPU Profile (Default/Preferred)
+  # ==========================================
+  api-cpu:
+    profiles: [ cpu, default ]
     build:
       context: .
-      dockerfile: Dockerfile
-    image: face-recognition-api:latest
-    container_name: face-recognition-api
+      dockerfile: docker/Dockerfile
+      args:
+        RUNTIME_TYPE: cpu
+        BASE_IMAGE: python:3.12-slim-bookworm
+    image: project-robin:cpu-latest
+    container_name: project-robin-cpu
+    environment: &common-env
+      FORCE_COLOR: "1"
+      # API Config
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+      API_WORKERS: "${API_WORKERS:-4}"
+      ENVIRONMENT: "${ENVIRONMENT:-production}"
+      # Model Config
+      MODEL_PATH: "${MODEL_PATH}"
+      MODEL_INPUT_SIZE: "${MODEL_INPUT_SIZE}"
+      GPU_DEVICE_ID: "${GPU_DEVICE_ID}"
+      # Supabase
+      SUPABASE_URL: "${SUPABASE_URL}"
+      SUPABASE_KEY: "${SUPABASE_KEY}"
+      SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY}"
+      SUPABASE_JWT_SECRET: "${SUPABASE_JWT_SECRET}"
+      # Qdrant (External)
+      QDRANT_HOST: "${QDRANT_HOST}"
+      QDRANT_PORT: "${QDRANT_PORT:-6333}"
+      QDRANT_HTTPS: "${QDRANT_HTTPS:-false}"
+      QDRANT_COLLECTION_NAME: "${QDRANT_COLLECTION_NAME:-face_embeddings}"
+      QDRANT_API_KEY: "${QDRANT_API_KEY}"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-    # NVIDIA GPU Runtime Configuration
+  # ==========================================
+  # GPU Profile
+  # ==========================================
+  api-gpu:
+    profiles: [ gpu ]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        RUNTIME_TYPE: gpu
+        BASE_IMAGE: nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+    image: project-robin:latest
+    container_name: project-robin-gpu
     runtime: nvidia
     deploy:
       resources:
@@ -17,45 +67,19 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [ gpu ]
-
-    # Environment variables
     environment:
-      - MODEL_PATH=/app/models/arcface_r100_224x224.onnx
-      - MODEL_INPUT_SIZE=224
-      - EMBEDDING_DIM=512
-      - GPU_DEVICE_ID=0
-      - GPU_MEM_LIMIT=2147483648
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-      - ENVIRONMENT=production
-      # Load Supabase credentials from .env file
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-
-    # Port mapping
+      <<: *common-env
+      GPU_DEVICE_ID: "0"
+      GPU_MEM_LIMIT: "2147483648"
     ports:
       - "8000:8000"
-
-    # Volume mounts
     volumes:
-      - ./models:/app/models:ro # Mount models directory (read-only)
-      - ./logs:/app/logs # Mount logs directory
-
-    # Restart policy
+      - ./models:/app/models:ro
+      - ./logs:/app/logs
     restart: unless-stopped
-
-    # Health check
+    # Healthcheck duplicated because YAML anchors don't merge complex structures easily in all parsers
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-
-    # Logging configuration
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"

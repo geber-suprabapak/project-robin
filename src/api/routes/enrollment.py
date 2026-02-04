@@ -1,57 +1,103 @@
-"""Face enrollment endpoint."""
+"""Face enrollment endpoint - Self-serve with JWT authentication."""
 
 import logging
-from typing import List, Optional
-from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form, Depends
+from typing import List
+from fastapi import APIRouter, HTTPException, status, UploadFile, File, Depends
 import numpy as np
 import cv2
 
 from src.config import settings
 from src.core.inference_engine import inference_engine
 from src.services.image_decoder import preprocess_face_image
+from src.services.qdrant_client import qdrant_service
 from src.services.supabase_client import supabase_service
 from src.services.face_detector import validate_single_face, crop_face_from_image
-from src.dependencies import verify_admin_key
-from src.schemas.api_models import EnrollResponse, ErrorResponse
+from src.dependencies import verify_jwt_bearer
+from src.schemas.api_models import EnrollResponse, EnrollStatusResponse, ErrorResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Face Recognition"])
 
-MIN_ENROLLMENT_IMAGES = 10
-MAX_ENROLLMENT_IMAGES = 20
+REQUIRED_IMAGES = 10
+
+
+@router.get(
+    "/enroll/status",
+    response_model=EnrollStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Check user enrollment status",
+    responses={
+        200: {"description": "Enrollment status retrieved"},
+        401: {"model": ErrorResponse, "description": "Invalid or expired JWT token"},
+        500: {"model": ErrorResponse, "description": "Server error"}
+    }
+)
+async def check_enrollment_status(
+    user_id: str = Depends(verify_jwt_bearer)
+) -> EnrollStatusResponse:
+    """
+    Check if current user has face embeddings enrolled.
+    
+    Requires a valid Supabase JWT Bearer token in Authorization header.
+    """
+    try:
+        count = await qdrant_service.get_user_embedding_count(user_id)
+        return EnrollStatusResponse(
+            is_enrolled=count > 0,
+            embedding_count=count,
+            user_id=user_id
+        )
+    except Exception as e:
+        logger.exception(f"Error checking enrollment status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to check enrollment status: {e}"
+        )
 
 
 @router.post(
     "/enroll",
     response_model=EnrollResponse,
     status_code=status.HTTP_200_OK,
-    summary="Enroll a student with multiple face images",
+    summary="Self-serve face enrollment with 10 images",
     responses={
-        200: {"description": "Student enrolled successfully"},
+        200: {"description": "User enrolled successfully"},
         400: {"model": ErrorResponse, "description": "Invalid images or count"},
-        401: {"model": ErrorResponse, "description": "Invalid admin key"},
+        401: {"model": ErrorResponse, "description": "Invalid or expired JWT token"},
         500: {"model": ErrorResponse, "description": "Server error"}
     }
 )
-async def enroll_student(
-    files: List[UploadFile] = File(..., description="10-20 face images (JPG/PNG)"),
-    name: str = Form(..., description="Student's full name"),
-    nisn: str = Form(..., description="Student's unique ID (NIS/NISN)"),
-    class_name: Optional[str] = Form(None, description="Class name (optional)"),
-    admin_key: str = Depends(verify_admin_key)
+async def enroll_user(
+    files: List[UploadFile] = File(..., description=f"Exactly {REQUIRED_IMAGES} face images (JPG/PNG)"),
+    user_id: str = Depends(verify_jwt_bearer)
 ) -> EnrollResponse:
-    """Enroll a student with multiple face images for improved accuracy."""
+    """
+    Self-serve face enrollment with exactly 10 images.
+    
+    Requires a valid Supabase JWT Bearer token in Authorization header.
+    The user_id is extracted from the token's 'sub' claim.
+    """
     try:
-        # Validate Image Count
+        # Step 1: Validate Image Count
         file_count = len(files)
-        if file_count < MIN_ENROLLMENT_IMAGES:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Minimum {MIN_ENROLLMENT_IMAGES} images required. Received: {file_count}")
-        if file_count > MAX_ENROLLMENT_IMAGES:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Maximum {MAX_ENROLLMENT_IMAGES} images allowed. Received: {file_count}")
+        if file_count != REQUIRED_IMAGES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Exactly {REQUIRED_IMAGES} images required. Received: {file_count}"
+            )
         
-        logger.info(f"📸 Enrollment started - Student: {name}, NIS: {nisn}, Images: {file_count}")
+        # Step 2: Verify user exists in database
+        user_profile = await supabase_service.get_user_profile_by_id(user_id)
+        if not user_profile:
+            logger.warning(f"🚫 JWT valid but user not found in database: {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found in database"
+            )
         
-        # Process Each Image
+        logger.info(f"📸 Self-serve enrollment started - user_id: {user_id}, Images: {file_count}")
+        
+        # Step 3: Process Each Image
         embeddings, failed_images = [], []
         for idx, file in enumerate(files):
             image_name = file.filename or f"image_{idx+1}"
@@ -75,24 +121,32 @@ async def enroll_student(
                 failed_images.append({"index": idx+1, "name": image_name, "error": str(e)})
                 logger.warning(f"⚠️ Image {idx+1} failed: {e}")
         
-        # Check Minimum Valid Images
-        if len(embeddings) < MIN_ENROLLMENT_IMAGES:
+        # Step 4: Check All Images Processed Successfully
+        if len(embeddings) != REQUIRED_IMAGES:
+            failed_count = len(failed_images)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Not enough valid images. Need {MIN_ENROLLMENT_IMAGES}, got {len(embeddings)}. Failed: {len(failed_images)}"
+                detail=f"All {REQUIRED_IMAGES} images must be valid. {failed_count} failed processing."
             )
         
         logger.info(f"🔬 Extracted {len(embeddings)} embeddings from {file_count} images")
         
-        # Store in Database
-        result = await supabase_service.enroll_student_multi(nis=nisn, name=name, embeddings=embeddings, class_name=class_name)
+        # Step 5: Store in Qdrant
+        result = await qdrant_service.enroll_user_embeddings(
+            user_id=user_id,
+            embeddings=embeddings,
+            model_name=settings.model_path.split("/")[-1].replace(".onnx", "")
+        )
         
         if result["success"]:
-            logger.info(f"✅ Enrollment complete - NIS: {nisn}, Embeddings: {result['total_embeddings']}")
+            logger.info(f"✅ Enrollment complete - user_id: {user_id}, Embeddings: {result['total_embeddings']}")
             return EnrollResponse(
-                status="success", student_id=nisn, images_processed=result["inserted_count"],
-                images_failed=len(failed_images), total_embeddings=result["total_embeddings"],
-                message=f"Student enrolled successfully with {result['total_embeddings']} face images"
+                status="success",
+                student_id=user_id,
+                images_processed=result["inserted_count"],
+                images_failed=len(failed_images),
+                total_embeddings=result["total_embeddings"],
+                message=f"Face enrolled successfully with {result['total_embeddings']} images"
             )
         
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])

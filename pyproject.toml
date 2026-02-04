@@ -17,6 +17,7 @@ dependencies = [
     "pillow>=10.1.0",
     "supabase>=2.0.0",
     "pyjwt[crypto]>=2.10.1",
+    "qdrant-client>=1.7.0",
 ]
 
 [build-system]

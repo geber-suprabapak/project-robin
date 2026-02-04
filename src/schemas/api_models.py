@@ -108,6 +108,7 @@ class HealthResponse(BaseModel):
     model_loaded: bool = Field(..., description="Whether ONNX model is loaded")
     gpu_available: bool = Field(..., description="Whether GPU is available")
     supabase_connected: bool = Field(..., description="Whether Supabase is connected")
+    qdrant_connected: bool = Field(..., description="Whether Qdrant is connected")
     
     class Config:
         json_schema_extra = {
@@ -115,7 +116,8 @@ class HealthResponse(BaseModel):
                 "status": "healthy",
                 "model_loaded": True,
                 "gpu_available": True,
-                "supabase_connected": True
+                "supabase_connected": True,
+                "qdrant_connected": True
             }
         }
 
@@ -157,5 +159,32 @@ class EnrollResponse(BaseModel):
                 "images_failed": 0,
                 "total_embeddings": 15,
                 "message": "Student enrolled successfully with 15 face images"
+            }
+        }
+
+
+class EnrollStatusResponse(BaseModel):
+    """Response model for enrollment status check endpoint."""
+    
+    is_enrolled: bool = Field(
+        ...,
+        description="Whether user has face embeddings enrolled"
+    )
+    embedding_count: int = Field(
+        ...,
+        description="Number of face embeddings stored for this user",
+        ge=0
+    )
+    user_id: str = Field(
+        ...,
+        description="User ID from JWT token"
+    )
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "is_enrolled": True,
+                "embedding_count": 10,
+                "user_id": "550e8400-e29b-41d4-a716-446655440000"
             }
         }

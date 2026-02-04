@@ -1,0 +1,43 @@
+# Version Control
+.git
+.gitignore
+
+# Environment & Virtual Envs
+.env
+.env.example
+.venv
+venv/
+env/
+__pycache__/
+*.pyc
+
+# IDEs
+.vscode
+.idea
+
+# Build & Dist
+dist/
+build/
+*.egg-info/
+
+# Project Files not needed in runtime
+docker/
+scripts/
+tests/
+Makefile
+README.md
+*.md
+sql/
+docs/
+
+# Logs & Data (unless you want to bake them in, usually you don't)
+logs/
+*.log
+
+# Large Assets (Models should usually be mounted or downloaded, but excluding base folder if not baked)
+# Commenting out models exclusion as per original Dockerfile behavior 
+# which seemed to expect models usage (though volumes are better).
+# If models are baked in:
+# !models/
+# If models are mounted:
+# models/

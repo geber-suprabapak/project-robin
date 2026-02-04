@@ -1,6 +1,6 @@
 # Face Recognition API (FaceVector-Core)
 
-A REST API for face recognition, powered by the ArcFace ONNX model. It supports GPU acceleration (CUDA) and uses Supabase for vector storage.
+A REST API for face recognition, powered by the ArcFace ONNX model. It supports GPU acceleration (CUDA) and uses **Qdrant** for vector storage with **Supabase** for user profiles.
 
 ## Table of Contents
 
@@ -17,15 +17,17 @@ A REST API for face recognition, powered by the ArcFace ONNX model. It supports 
 ## Features
 
 - **GPU-Accelerated Inference**: Uses CUDA if available, otherwise falls back to CPU.
-- **Multi-Image Enrollment**: Accepts 10-20 training images per user to improve accuracy.
+- **Multi-Image Enrollment**: Requires exactly 10 training images per user for improved accuracy.
 - **Auto Face Cropping**: Automatically detects and crops faces from input images.
-- **Face Identification**: Matches faces against the database in real-time.
+- **Face Identification**: 1:1 face verification against user's enrolled embeddings.
 - **Singleton Pattern**: Loads the model once to save memory.
 - **Thread-Safe**: Handles concurrent requests safely.
 - **Clean Architecture**: Code is organized into modular layers (api, core, services, schemas).
-- **Supabase Integration**: Uses PostgreSQL and pgvector for similarity search.
+- **Qdrant Vector Database**: High-performance vector storage for face embeddings.
+- **Supabase Integration**: Uses PostgreSQL for user profile management.
 - **Docker Ready**: Supports NVIDIA runtime for containerized deployment.
 - **JWT Authentication**: Secure session-based auth using Supabase JWT tokens.
+- **Self-Serve Enrollment**: Users can enroll their own face via JWT authentication.
 
 ## Architecture
 
@@ -54,32 +56,30 @@ project-robin/
 │   │   ├── __init__.py
 │   │   ├── image_decoder.py          # Base64 → numpy, preprocessing
 │   │   ├── face_detector.py          # DNN face detection + cropping
-│   │   └── supabase_client.py        # Database operations
+│   │   ├── qdrant_client.py          # Qdrant vector operations
+│   │   └── supabase_client.py        # User profile operations
 │   │
 │   └── schemas/                      # Pydantic models
 │       ├── __init__.py
 │       └── api_models.py
 │
 ├── models/                           # ONNX models (gitignored)
-├── sql/                              # Database schemas
-│   ├── schema_latest_latest.sql
-│   ├── face_embeddings_user_id_schema.sql
-│   └── MIGRATION_INSTRUCTIONS.md
+├── sql/                              # Database & RLS setup
+│   └── rls_permissions.sql           # RLS policies & table permissions
 │
-├── scripts/                          # Build scripts
-│   ├── build-local.ps1               # Local Docker build (Windows)
-│   ├── build-local.sh                # Local Docker build (Linux/macOS)
-│   ├── build-prod.ps1                # GHCR build & push (Windows)
-│   └── build-prod.sh                 # GHCR build & push (Linux/macOS)
+├── docker/                           # Docker configuration
+│   └── Dockerfile                    # Multi-stage Dockerfile (CPU/GPU)
 │
 ├── .env                              # Environment config
 ├── .env.example
-├── Dockerfile
 ├── docker-compose.yml
+├── Makefile                          # Build & deployment commands
 ├── pyproject.toml
 ├── requirements.txt
 ├── run-local.ps1                     # Windows launcher
-└── setup.ps1
+├── run-local.sh                      # Linux/macOS launcher
+├── setup.ps1                         # Windows setup script
+└── setup.sh                          # Linux/macOS setup script
 ```
 
 ## Quick Start
@@ -143,21 +143,48 @@ GHCR_TOKEN=ghp_xxxxxxxxxxxxx  # Personal Access Token with write:packages scope
 FACE_MATCH_THRESHOLD=0.6
 MAX_COSINE_DISTANCE=0.4
 
-# Security
-ADMIN_SECRET_KEY=your-secret-admin-key    # For /v1/enroll (admin-only)
+# Qdrant Vector Database
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+QDRANT_COLLECTION_NAME=face_embeddings
+QDRANT_API_KEY=                        # Optional, for Qdrant Cloud
+
+# Security (optional, no longer required for enrollment)
+ADMIN_SECRET_KEY=your-secret-admin-key
 ```
+
+## Qdrant Setup
+
+### 1. Start Qdrant (Docker)
+
+```bash
+docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
+```
+
+### 2. Collection Auto-Creation
+
+The API automatically creates the `face_embeddings` collection on startup with:
+- **Vector dimension**: 512 (ArcFace)
+- **Distance metric**: Cosine
+- **Payload index**: `user_id` for fast filtering
 
 ## Database Setup
 
-### 1. Enable pgvector Extension
+### 1. Run RLS Permissions Script
 
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-```
+Execute `sql/rls_permissions.sql` in Supabase SQL Editor. This script:
 
-### 2. Run Schema
+- Grants table permissions to `service_role` and `authenticated` roles
+- Enables Row Level Security on `user_profiles` and `biodata_siswa` tables
+- Creates RLS policies for secure data access
+- Adds `get_student_by_user_id()` RPC function for student lookup
 
-Execute `sql/face_embeddings_user_id_schema.sql` in Supabase SQL Editor.
+### 2. Required Tables
+
+Ensure these tables exist in your Supabase project:
+
+- `user_profiles` - User profile data with `user_id` (UUID) and `nis` (student ID)
+- `biodata_siswa` - Student biodata with `nis`, `nama`, `kelas`, `absen`
 
 ## API Documentation
 
@@ -169,24 +196,21 @@ Interactive docs: `http://localhost:8000/docs`
 |--------|------|-------------|
 | GET | `/` | API info |
 | GET | `/health` | Health check |
-| POST | `/v1/identify` | Identify face |
-| POST | `/v1/enroll` | Enroll student (10-20 images) |
+| POST | `/v1/identify` | 1:1 Face verification |
+| POST | `/v1/enroll` | Self-serve enrollment (10 images) |
 
 ### `POST /v1/enroll`
 
-**Headers**: `X-Admin-Key: your-admin-secret-key`
+**Headers**: `Authorization: Bearer <supabase_session_token>`
 
 **Request (multipart/form-data)**:
-- `files`: 10-20 face images (JPG/PNG)
-- `name`: Student's full name
-- `nisn`: Student ID (NIS/NISN)
-- `class_name`: Class name (optional)
+- `files`: Exactly 10 face images (JPG/PNG)
 
 ### `POST /v1/identify`
 
 **Headers**: `Authorization: Bearer <supabase_session_token>`
 
-Requires a valid Supabase JWT session token. The server verifies the token signature and checks that the user exists in the database.
+Performs 1:1 face verification against the authenticated user's enrolled embeddings. Uses manual cosine similarity calculation (no ANN search).
 
 **Request (JSON)**:
 ```json
@@ -208,74 +232,58 @@ Requires a valid Supabase JWT session token. The server verifies the token signa
 
 ## Docker Deployment
 
+The project has been reorganized to support both CPU and GPU runtimes using a unified Docker setup.
+
 ### Quick Start with Docker Compose
 
+**Option 1: CPU (Default/Recommended)**
+Use the `api-cpu` profile. Ideal for local development and environments without NVIDIA GPUs.
 ```bash
-docker-compose up -d
+docker compose --profile cpu up -d
 ```
+*Note: This image is significantly smaller and faster to pull.*
 
-### Building Docker Images
-
-#### Local Build (Testing)
-
-Build Docker image locally without pushing to registry:
-
-**Windows (PowerShell):**
-```powershell
-.\scripts\build-local.ps1              # Build with 'latest' tag
-.\scripts\build-local.ps1 -Tag "dev"   # Build with custom tag
-.\scripts\build-local.ps1 -NoCache     # Build without cache
-```
-
-**Linux/macOS (Bash):**
+**Option 2: GPU (NVIDIA)**
+Use the `api-gpu` profile for heavy production loads. Requires NVIDIA Container Toolkit.
 ```bash
-./scripts/build-local.sh               # Build with 'latest' tag
-./scripts/build-local.sh -t "dev"      # Build with custom tag
-./scripts/build-local.sh --no-cache    # Build without cache
+docker compose --profile gpu up -d
 ```
 
-#### Production Build (GHCR)
+### Build Commands (Makefile)
 
-Build and push to GitHub Container Registry:
+We use a `Makefile` to simplify building and pushing images.
 
-**Prerequisites:**
-1. Add GHCR credentials to `.env`:
-   ```ini
-   GHCR_USERNAME=your-github-username
-   GHCR_TOKEN=ghp_xxxxxxxxxxxxx  # GitHub Personal Access Token
-   ```
-2. Ensure your PAT has `write:packages` scope
+| Command | Description |
+|---------|-------------|
+| `make build` | Build CPU image (Default) |
+| `make up-cpu` | Start CPU stack |
+| `make up-gpu` | Start GPU stack |
+| `make down`  | Stop all services |
+| `make push-cpu` | Push CPU image to Registry |
+| `make push-gpu` | Push GPU image to Registry |
 
-**Windows (PowerShell):**
-```powershell
-.\scripts\build-prod.ps1               # Build and push with 'latest' tag
-.\scripts\build-prod.ps1 -Tag "v1.0.0" # Build and push with version tag
-```
+**Manual Build (if Makefile not available)**:
 
-**Linux/macOS (Bash):**
+*CPU*:
 ```bash
-./scripts/build-prod.sh                # Build and push with 'latest' tag
-./scripts/build-prod.sh -t "v1.0.0"    # Build and push with version tag
+docker build -t project-robin:cpu-latest --build-arg RUNTIME_TYPE=cpu --build-arg BASE_IMAGE=python:3.12-slim-bookworm -f docker/Dockerfile .
 ```
 
-**Image Registry:** `ghcr.io/geber-suprabapak/project-robin`
+*GPU*:
+```bash
+docker build -t project-robin:latest --build-arg RUNTIME_TYPE=gpu --build-arg BASE_IMAGE=nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04 -f docker/Dockerfile .
+```
 
-### Running Docker Image
+### Running Docker Image Manually
 
-**With GPU support:**
+**CPU:**
+```bash
+docker run -p 8000:8000 --env-file .env project-robin:cpu-latest
+```
+
+**GPU:**
 ```bash
 docker run --gpus all -p 8000:8000 --env-file .env project-robin:latest
-```
-
-**CPU only:**
-```bash
-docker run -p 8000:8000 --env-file .env project-robin:latest
-```
-
-**From GHCR:**
-```bash
-docker pull ghcr.io/geber-suprabapak/project-robin:latest
-docker run --gpus all -p 8000:8000 --env-file .env ghcr.io/geber-suprabapak/project-robin:latest
 ```
 
 ## Performance
@@ -299,8 +307,14 @@ uv run python -c "import onnxruntime as ort; print(ort.get_available_providers()
 Ensure model is at `./models/arcface_r100_224x224.onnx`
 
 ### Authentication Errors (401)
-- **For `/v1/enroll`**: Ensure `X-Admin-Key` header matches `ADMIN_SECRET_KEY` in `.env`
-- **For `/v1/identify`**: Ensure valid Supabase JWT token in `Authorization: Bearer <token>` header. Check that `SUPABASE_JWT_SECRET` is correctly configured.
+- **For `/v1/enroll`**: Ensure valid Supabase JWT token in `Authorization: Bearer <token>` header.
+- **For `/v1/identify`**: Same as above. Check that `SUPABASE_JWT_SECRET` is correctly configured.
+
+### Qdrant Connection Failed
+Ensure Qdrant is running at the configured host:port. Check with:
+```bash
+curl http://localhost:6333/collections
+```
 
 ---
 
