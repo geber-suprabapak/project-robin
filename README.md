@@ -64,25 +64,22 @@ project-robin/
 │       └── api_models.py
 │
 ├── models/                           # ONNX models (gitignored)
-├── sql/                              # Database schemas
-│   ├── schema_latest_latest.sql
-│   ├── face_embeddings_user_id_schema.sql
-│   └── MIGRATION_INSTRUCTIONS.md
+├── sql/                              # Database & RLS setup
+│   └── rls_permissions.sql           # RLS policies & table permissions
 │
-├── scripts/                          # Build scripts
-│   ├── build-local.ps1               # Local Docker build (Windows)
-│   ├── build-local.sh                # Local Docker build (Linux/macOS)
-│   ├── build-prod.ps1                # GHCR build & push (Windows)
-│   └── build-prod.sh                 # GHCR build & push (Linux/macOS)
+├── docker/                           # Docker configuration
+│   └── Dockerfile                    # Multi-stage Dockerfile (CPU/GPU)
 │
 ├── .env                              # Environment config
 ├── .env.example
-├── Dockerfile
 ├── docker-compose.yml
+├── Makefile                          # Build & deployment commands
 ├── pyproject.toml
 ├── requirements.txt
 ├── run-local.ps1                     # Windows launcher
-└── setup.ps1
+├── run-local.sh                      # Linux/macOS launcher
+├── setup.ps1                         # Windows setup script
+└── setup.sh                          # Linux/macOS setup script
 ```
 
 ## Quick Start
@@ -173,15 +170,21 @@ The API automatically creates the `face_embeddings` collection on startup with:
 
 ## Database Setup
 
-### 1. Enable pgvector Extension
+### 1. Run RLS Permissions Script
 
-```sql
-CREATE EXTENSION IF NOT EXISTS vector;
-```
+Execute `sql/rls_permissions.sql` in Supabase SQL Editor. This script:
 
-### 2. Run Schema
+- Grants table permissions to `service_role` and `authenticated` roles
+- Enables Row Level Security on `user_profiles` and `biodata_siswa` tables
+- Creates RLS policies for secure data access
+- Adds `get_student_by_user_id()` RPC function for student lookup
 
-Execute `sql/face_embeddings_user_id_schema.sql` in Supabase SQL Editor.
+### 2. Required Tables
+
+Ensure these tables exist in your Supabase project:
+
+- `user_profiles` - User profile data with `user_id` (UUID) and `nis` (student ID)
+- `biodata_siswa` - Student biodata with `nis`, `nama`, `kelas`, `absen`
 
 ## API Documentation
 
@@ -197,8 +200,6 @@ Interactive docs: `http://localhost:8000/docs`
 | POST | `/v1/enroll` | Self-serve enrollment (10 images) |
 
 ### `POST /v1/enroll`
-
-> **⚠️ Breaking Change**: Enrollment is now self-serve with JWT authentication. Admin key is no longer required.
 
 **Headers**: `Authorization: Bearer <supabase_session_token>`
 
