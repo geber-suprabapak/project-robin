@@ -30,6 +30,10 @@ class Settings(BaseSettings):
         default=512,
         description="Face embedding vector dimension"
     )
+    skip_model_load: bool = Field(
+        default=False,
+        description="Skip ONNX model loading for CI smoke tests"
+    )
     
     # GPU Configuration
     gpu_device_id: int = Field(

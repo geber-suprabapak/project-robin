@@ -26,11 +26,14 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting Face Recognition API")
     
     try:
-        logger.info("📦 Loading face recognition model...")
-        inference_engine.load_model()
-        
-        logger.info("🔥 Warming up inference engine...")
-        inference_engine.warmup()
+        if settings.skip_model_load:
+            logger.warning("SKIP_MODEL_LOAD=true; skipping face recognition model load")
+        else:
+            logger.info("📦 Loading face recognition model...")
+            inference_engine.load_model()
+
+            logger.info("🔥 Warming up inference engine...")
+            inference_engine.warmup()
         
         if supabase_service.is_connected():
             logger.info("✅ Supabase client connected")

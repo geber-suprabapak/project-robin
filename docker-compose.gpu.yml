@@ -1,0 +1,13 @@
+services:
+  api:
+    image: ${IMAGE_NAME:-ghcr.io/lunaradevs/project-robin}:${GPU_IMAGE_TAG:?Set GPU_IMAGE_TAG to a published gpu-<short-sha> tag}
+    runtime: nvidia
+    environment:
+      GPU_DEVICE_ID: "0"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]

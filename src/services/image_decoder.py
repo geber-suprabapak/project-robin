@@ -5,7 +5,6 @@ Image decoding service for converting Base64 strings to numpy arrays.
 import base64
 import numpy as np
 import cv2
-from typing import Optional
 
 
 class ImageDecodeError(Exception):
