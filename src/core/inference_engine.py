@@ -94,7 +94,7 @@ class FaceInferenceEngine:
             active_provider = self._session.get_providers()[0]
             self._provider = active_provider
             
-            logger.info(f"✓ Model loaded successfully")
+            logger.info("✓ Model loaded successfully")
             logger.info(f"✓ Active execution provider: {active_provider}")
             logger.info(f"✓ Input name: {self._input_name}")
             logger.info(f"✓ Output name: {self._output_name}")
