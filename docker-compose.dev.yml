@@ -1,0 +1,8 @@
+services:
+  api:
+    environment:
+      ENVIRONMENT: "development"
+    volumes:
+      - ./src:/app/src
+      - ./models:/app/runtime-models:ro
+      - ./logs:/app/logs

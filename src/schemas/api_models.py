@@ -3,44 +3,61 @@ Pydantic models for API request and response schemas.
 """
 
 from typing import Optional
-from pydantic import BaseModel, Field, validator
-import base64
+import re
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from src.config import settings
+
+
+_BASE64_RE = re.compile(r"^[A-Za-z0-9+/]*={0,2}$")
+
+
+def _estimate_base64_decoded_size(value: str) -> int:
+    padding = len(value) - len(value.rstrip("="))
+    return (len(value) * 3 // 4) - padding
 
 
 class IdentifyRequest(BaseModel):
     """Request model for face identification endpoint."""
-    
+
     image_base64: str = Field(
         ...,
         description="Base64-encoded image string",
         min_length=100
     )
-    
-    @validator("image_base64")
-    def validate_base64(cls, v: str) -> str:
-        """Validate that the string is valid base64."""
-        try:
-            # Remove data URI prefix if present
-            if "," in v:
-                v = v.split(",")[1]
-            
-            # Try to decode to validate
-            base64.b64decode(v, validate=True)
-            return v
-        except Exception as e:
-            raise ValueError(f"Invalid base64 string: {str(e)}")
-    
-    class Config:
-        json_schema_extra = {
+
+    @field_validator("image_base64")
+    @classmethod
+    def validate_base64(cls, value: str) -> str:
+        """Validate base64 shape and size without decoding the full payload."""
+        if "," in value:
+            _, value = value.split(",", 1)
+
+        compact = "".join(value.split())
+        if len(compact) % 4 != 0:
+            raise ValueError("Invalid base64 string length")
+        if not _BASE64_RE.fullmatch(compact):
+            raise ValueError("Invalid base64 characters")
+        if _estimate_base64_decoded_size(compact) > settings.max_image_bytes:
+            raise ValueError(f"Image exceeds {settings.max_image_bytes} byte limit")
+        return compact
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
-                "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                "image_base64": (
+                    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+                    "AAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                )
             }
         }
+    )
 
 
 class IdentifyResponse(BaseModel):
     """Response model for face identification endpoint."""
-    
+
     status: str = Field(
         ...,
         description="Status of the operation (ok, error, not_found)"
@@ -68,9 +85,9 @@ class IdentifyResponse(BaseModel):
         None,
         description="Additional information or error message"
     )
-    
-    class Config:
-        json_schema_extra = {
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "ok",
                 "student_id": "12345678",
@@ -80,18 +97,19 @@ class IdentifyResponse(BaseModel):
                 "message": "Face identified successfully"
             }
         }
+    )
 
 
 class ErrorResponse(BaseModel):
     """Error response model."""
-    
+
     status: str = Field(default="error", description="Status")
     error: str = Field(..., description="Error type")
     message: str = Field(..., description="Error message")
     detail: Optional[str] = Field(None, description="Additional error details")
-    
-    class Config:
-        json_schema_extra = {
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "error",
                 "error": "InvalidImageError",
@@ -99,32 +117,36 @@ class ErrorResponse(BaseModel):
                 "detail": "Corrupt or invalid image format"
             }
         }
+    )
 
 
 class HealthResponse(BaseModel):
     """Health check response model."""
-    
+
     status: str = Field(default="healthy", description="Service status")
     model_loaded: bool = Field(..., description="Whether ONNX model is loaded")
+    face_detector_ready: bool = Field(..., description="Whether the face detector is available")
     gpu_available: bool = Field(..., description="Whether GPU is available")
     supabase_connected: bool = Field(..., description="Whether Supabase is connected")
     qdrant_connected: bool = Field(..., description="Whether Qdrant is connected")
-    
-    class Config:
-        json_schema_extra = {
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "healthy",
                 "model_loaded": True,
+                "face_detector_ready": True,
                 "gpu_available": True,
                 "supabase_connected": True,
                 "qdrant_connected": True
             }
         }
+    )
 
 
 class EnrollResponse(BaseModel):
     """Response model for multi-image student enrollment endpoint."""
-    
+
     status: str = Field(
         ...,
         description="Status of the operation (success, partial, or error)"
@@ -149,9 +171,9 @@ class EnrollResponse(BaseModel):
         ...,
         description="Human-readable result message"
     )
-    
-    class Config:
-        json_schema_extra = {
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "success",
                 "student_id": "12345678",
@@ -161,11 +183,12 @@ class EnrollResponse(BaseModel):
                 "message": "Student enrolled successfully with 15 face images"
             }
         }
+    )
 
 
 class EnrollStatusResponse(BaseModel):
     """Response model for enrollment status check endpoint."""
-    
+
     is_enrolled: bool = Field(
         ...,
         description="Whether user has face embeddings enrolled"
@@ -179,12 +202,13 @@ class EnrollStatusResponse(BaseModel):
         ...,
         description="User ID from JWT token"
     )
-    
-    class Config:
-        json_schema_extra = {
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "is_enrolled": True,
                 "embedding_count": 10,
                 "user_id": "550e8400-e29b-41d4-a716-446655440000"
             }
         }
+    )

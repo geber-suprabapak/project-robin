@@ -3,39 +3,48 @@ services:
     image: ${IMAGE_NAME:-ghcr.io/lunaradevs/project-robin}:${IMAGE_TAG:-cpu-latest}
     pull_policy: always
     container_name: project-robin-api
-    environment: &common-env
+    environment:
       FORCE_COLOR: "1"
       API_HOST: "0.0.0.0"
       API_PORT: "8000"
       API_WORKERS: "${API_WORKERS:-1}"
-      ENVIRONMENT: "${ENVIRONMENT:-development}"
-      MODEL_PATH: "${MODEL_PATH:-./models/arcface_r100_224x224.onnx}"
+      ENVIRONMENT: "${ENVIRONMENT:-production}"
+      MODEL_PATH: "${MODEL_PATH:-/app/runtime-models/arcface_r100_224x224.onnx}"
       MODEL_INPUT_SIZE: "${MODEL_INPUT_SIZE:-224}"
       EMBEDDING_DIM: "${EMBEDDING_DIM:-512}"
       SKIP_MODEL_LOAD: "${SKIP_MODEL_LOAD:-false}"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-*}"
+      CORS_ALLOW_CREDENTIALS: "${CORS_ALLOW_CREDENTIALS:-false}"
+      MAX_REQUEST_BYTES: "${MAX_REQUEST_BYTES:-62914560}"
+      MAX_IMAGE_BYTES: "${MAX_IMAGE_BYTES:-5242880}"
+      MAX_IMAGE_WIDTH: "${MAX_IMAGE_WIDTH:-4096}"
+      MAX_IMAGE_HEIGHT: "${MAX_IMAGE_HEIGHT:-4096}"
+      MAX_IMAGE_PIXELS: "${MAX_IMAGE_PIXELS:-16777216}"
       GPU_DEVICE_ID: "${GPU_DEVICE_ID:--1}"
       GPU_MEM_LIMIT: "${GPU_MEM_LIMIT:-2147483648}"
       SUPABASE_URL: "${SUPABASE_URL:-}"
       SUPABASE_KEY: "${SUPABASE_KEY:-}"
       SUPABASE_SERVICE_ROLE_KEY: "${SUPABASE_SERVICE_ROLE_KEY:-}"
       SUPABASE_JWT_SECRET: "${SUPABASE_JWT_SECRET:-}"
+      SUPABASE_TIMEOUT_SECONDS: "${SUPABASE_TIMEOUT_SECONDS:-3}"
+      SUPABASE_MAX_RETRIES: "${SUPABASE_MAX_RETRIES:-2}"
       FACE_MATCH_THRESHOLD: "${FACE_MATCH_THRESHOLD:-0.6}"
-      MAX_COSINE_DISTANCE: "${MAX_COSINE_DISTANCE:-0.4}"
-      ADMIN_SECRET_KEY: "${ADMIN_SECRET_KEY:-}"
+      FACE_DETECTOR_PROTOTXT_PATH: "${FACE_DETECTOR_PROTOTXT_PATH:-/app/models/face_detector/deploy.prototxt}"
+      FACE_DETECTOR_MODEL_PATH: "${FACE_DETECTOR_MODEL_PATH:-/app/models/face_detector/res10_300x300_ssd_iter_140000.caffemodel}"
       QDRANT_HOST: "${QDRANT_HOST:-localhost}"
       QDRANT_PORT: "${QDRANT_PORT:-6333}"
       QDRANT_HTTPS: "${QDRANT_HTTPS:-false}"
       QDRANT_COLLECTION_NAME: "${QDRANT_COLLECTION_NAME:-face_embeddings}"
       QDRANT_API_KEY: "${QDRANT_API_KEY:-}"
+      QDRANT_TIMEOUT_SECONDS: "${QDRANT_TIMEOUT_SECONDS:-3}"
     ports:
       - "8000:8000"
     volumes:
-      - ./src:/app/src
-      - ./models:/app/models:ro
+      - ./models:/app/runtime-models:ro
       - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/ready" ]
       interval: 30s
       timeout: 10s
       retries: 3

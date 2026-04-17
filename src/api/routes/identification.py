@@ -7,8 +7,8 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from src.config import settings
 from src.core.inference_engine import inference_engine
 from src.services.image_decoder import decode_base64_image, preprocess_face_image, ImageDecodeError
-from src.services.qdrant_client import qdrant_service
-from src.services.supabase_client import supabase_service
+from src.services.qdrant_client import QdrantServiceError, qdrant_service
+from src.services.supabase_client import SupabaseServiceError, supabase_service
 from src.services.face_detector import validate_single_face, crop_face_from_image, FaceDetectionError
 from src.schemas.api_models import IdentifyRequest, IdentifyResponse, ErrorResponse
 from src.dependencies import verify_jwt_bearer
@@ -26,6 +26,7 @@ router = APIRouter(prefix="/v1", tags=["Face Recognition"])
         200: {"description": "Face identified successfully"},
         400: {"model": ErrorResponse, "description": "Invalid request"},
         401: {"model": ErrorResponse, "description": "Invalid or expired JWT token"},
+        503: {"model": ErrorResponse, "description": "Dependency unavailable"},
         500: {"model": ErrorResponse, "description": "Server error"}
     }
 )
@@ -118,6 +119,12 @@ async def identify_face(
         )
     except HTTPException:
         raise
+    except (QdrantServiceError, SupabaseServiceError) as e:
+        logger.exception(f"Dependency error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Required dependency is unavailable"
+        )
     except Exception as e:
         logger.exception(f"Unexpected error: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Internal error: {e}")

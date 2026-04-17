@@ -7,11 +7,22 @@ This service now focuses solely on user profile lookup and management.
 
 from typing import Optional, Dict, Any
 from supabase import create_client, Client
+import asyncio
 import logging
+
+from starlette.concurrency import run_in_threadpool
 
 from src.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class SupabaseServiceError(RuntimeError):
+    """Base exception for Supabase dependency failures."""
+
+
+class SupabaseUnavailableError(SupabaseServiceError):
+    """Raised when Supabase is not configured or cannot be reached."""
 
 
 class SupabaseService:
@@ -55,6 +66,42 @@ class SupabaseService:
             True if connected, False otherwise
         """
         return self.client is not None
+
+    async def _execute_with_retry(self, operation: str, func):
+        """Run sync Supabase calls off the event loop with timeout and retry."""
+        if not self.is_connected():
+            raise SupabaseUnavailableError("Supabase client is not configured")
+
+        last_error: Exception | None = None
+        for attempt in range(settings.supabase_max_retries + 1):
+            try:
+                return await asyncio.wait_for(
+                    run_in_threadpool(func),
+                    timeout=settings.supabase_timeout_seconds,
+                )
+            except asyncio.TimeoutError as e:
+                last_error = e
+                logger.warning("Supabase %s timed out on attempt %s", operation, attempt + 1)
+            except Exception as e:
+                last_error = e
+                logger.warning("Supabase %s failed on attempt %s: %s", operation, attempt + 1, str(e))
+
+            if attempt < settings.supabase_max_retries:
+                await asyncio.sleep(0.1 * (attempt + 1))
+
+        raise SupabaseUnavailableError(f"Supabase {operation} failed: {last_error}") from last_error
+
+    async def is_ready(self) -> bool:
+        """Check whether Supabase can answer a lightweight query."""
+        try:
+            await self._execute_with_retry(
+                "readiness check",
+                lambda: self.client.table("user_profiles").select("user_id").limit(1).execute()
+            )
+            return True
+        except Exception as e:
+            logger.warning("Supabase readiness check failed: %s", str(e))
+            return False
     
     async def get_user_profile_by_nis(self, nis: str) -> Optional[Dict[str, Any]]:
         """
@@ -66,18 +113,19 @@ class SupabaseService:
         Returns:
             User profile dict or None if not found
         """
-        if not self.is_connected():
-            logger.warning("Supabase not connected. Cannot fetch user profile.")
-            return None
-        
         try:
-            response = self.client.table("user_profiles").select("*").eq("nis", nis).execute()
+            response = await self._execute_with_retry(
+                "fetch user profile by NIS",
+                lambda: self.client.table("user_profiles").select("*").eq("nis", nis).execute()
+            )
             if response.data and len(response.data) > 0:
                 return response.data[0]
             return None
+        except SupabaseServiceError:
+            raise
         except Exception as e:
             logger.error(f"✗ Error fetching user profile by NIS={nis}: {str(e)}")
-            return None
+            raise SupabaseUnavailableError(f"Failed to fetch user profile by NIS={nis}: {str(e)}") from e
     
     async def get_user_profile_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -89,18 +137,19 @@ class SupabaseService:
         Returns:
             User profile dict or None if not found
         """
-        if not self.is_connected():
-            logger.warning("Supabase not connected. Cannot fetch user profile.")
-            return None
-        
         try:
-            response = self.client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+            response = await self._execute_with_retry(
+                "fetch user profile by user_id",
+                lambda: self.client.table("user_profiles").select("*").eq("user_id", user_id).execute()
+            )
             if response.data and len(response.data) > 0:
                 return response.data[0]
             return None
+        except SupabaseServiceError:
+            raise
         except Exception as e:
             logger.error(f"✗ Error fetching user profile by user_id={user_id}: {str(e)}")
-            return None
+            raise SupabaseUnavailableError(f"Failed to fetch user profile by user_id={user_id}: {str(e)}") from e
     
     async def get_student_by_user_id(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -112,22 +161,23 @@ class SupabaseService:
         Returns:
             Student data dict or None if not found
         """
-        if not self.is_connected():
-            logger.warning("Supabase not connected. Cannot fetch student data.")
-            return None
-        
         try:
-            response = self.client.rpc(
-                "get_student_by_user_id",
-                {"p_user_id": user_id}
-            ).execute()
+            response = await self._execute_with_retry(
+                "fetch student by user_id",
+                lambda: self.client.rpc(
+                    "get_student_by_user_id",
+                    {"p_user_id": user_id}
+                ).execute()
+            )
             
             if response.data and len(response.data) > 0:
                 return response.data[0]
             return None
+        except SupabaseServiceError:
+            raise
         except Exception as e:
             logger.error(f"✗ Error fetching student by user_id={user_id}: {str(e)}")
-            return None
+            raise SupabaseUnavailableError(f"Failed to fetch student by user_id={user_id}: {str(e)}") from e
 
 
 # Global Supabase service instance

@@ -49,7 +49,30 @@ class Settings(BaseSettings):
     api_host: str = Field(default="0.0.0.0", description="API server host")
     api_port: int = Field(default=8000, description="API server port")
     api_workers: int = Field(default=1, description="Number of uvicorn workers")
-    environment: str = Field(default="development", description="Environment")
+    environment: str = Field(default="production", description="Environment")
+    
+    # CORS Configuration
+    cors_allowed_origins: str = Field(
+        default="*",
+        description="Comma-separated allowed CORS origins. Use * for native/mobile clients."
+    )
+    cors_allow_credentials: bool = Field(
+        default=False,
+        description="Whether browser credentials such as cookies are allowed in CORS requests"
+    )
+    
+    # Request / Image Guardrails
+    max_request_bytes: int = Field(
+        default=62_914_560,
+        description="Maximum HTTP request size accepted by the API"
+    )
+    max_image_bytes: int = Field(
+        default=5_242_880,
+        description="Maximum decoded image file size"
+    )
+    max_image_width: int = Field(default=4096, description="Maximum accepted image width")
+    max_image_height: int = Field(default=4096, description="Maximum accepted image height")
+    max_image_pixels: int = Field(default=16_777_216, description="Maximum accepted image pixel count")
     
     # Supabase Configuration
     supabase_url: str = Field(
@@ -63,6 +86,15 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = Field(
         default="",
         description="Supabase service role key (admin access)"
+    )
+    supabase_timeout_seconds: float = Field(
+        default=3.0,
+        description="Timeout for Supabase operations"
+    )
+    supabase_max_retries: int = Field(
+        default=2,
+        ge=0,
+        description="Retry count for transient Supabase operation failures"
     )
     
     # Security - JWT
@@ -78,20 +110,15 @@ class Settings(BaseSettings):
         le=1.0,
         description="Minimum confidence threshold for face matching"
     )
-    max_cosine_distance: float = Field(
-        default=0.4,
-        ge=0.0,
-        le=2.0,
-        description="Maximum cosine distance for face matching"
+    
+    # Face Detector Assets
+    face_detector_prototxt_path: str = Field(
+        default="/app/models/face_detector/deploy.prototxt",
+        description="Path to the OpenCV DNN face detector prototxt file"
     )
-    
-    
-    # Security - Admin (DEPRECATED)
-    # Note: Admin Key authentication is deprecated as of Qdrant migration.
-    # All endpoints now use JWT Bearer tokens for authentication.
-    admin_secret_key: str = Field(
-        default="",
-        description="[DEPRECATED] Admin secret key (no longer used in any endpoints)"
+    face_detector_model_path: str = Field(
+        default="/app/models/face_detector/res10_300x300_ssd_iter_140000.caffemodel",
+        description="Path to the OpenCV DNN face detector model file"
     )
     
     # Qdrant Configuration
@@ -115,6 +142,19 @@ class Settings(BaseSettings):
         default=False,
         description="Whether to use HTTPS for Qdrant connection"
     )
+    qdrant_timeout_seconds: float = Field(
+        default=3.0,
+        description="Timeout for Qdrant operations"
+    )
+
+    @property
+    def cors_allowed_origin_list(self) -> list[str]:
+        """Configured CORS origins normalized as a list."""
+        return [
+            value.strip()
+            for value in self.cors_allowed_origins.split(",")
+            if value.strip()
+        ] or ["*"]
 
 
 # Global settings instance

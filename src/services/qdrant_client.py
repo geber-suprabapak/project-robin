@@ -6,6 +6,7 @@ Uses AsyncQdrantClient for non-blocking I/O operations with FastAPI.
 
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
+import asyncio
 import uuid
 import logging
 
@@ -24,6 +25,18 @@ from qdrant_client.models import (
 from src.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class QdrantServiceError(RuntimeError):
+    """Base exception for Qdrant dependency failures."""
+
+
+class QdrantUnavailableError(QdrantServiceError):
+    """Raised when Qdrant cannot be reached or initialized."""
+
+
+class QdrantOperationError(QdrantServiceError):
+    """Raised when a Qdrant operation fails after connection setup."""
 
 
 class QdrantService:
@@ -56,7 +69,8 @@ class QdrantService:
                     # Full URL provided (e.g., https://qdrant.example.com)
                     self._client = AsyncQdrantClient(
                         url=settings.qdrant_host,
-                        api_key=settings.qdrant_api_key or None
+                        api_key=settings.qdrant_api_key or None,
+                        timeout=settings.qdrant_timeout_seconds,
                     )
                 else:
                     # Host + port provided
@@ -64,7 +78,8 @@ class QdrantService:
                         host=settings.qdrant_host,
                         port=settings.qdrant_port,
                         api_key=settings.qdrant_api_key or None,
-                        https=settings.qdrant_https
+                        https=settings.qdrant_https,
+                        timeout=settings.qdrant_timeout_seconds,
                     )
                 
                 # Ensure collection exists
@@ -73,9 +88,21 @@ class QdrantService:
                 
             except Exception as e:
                 logger.error(f"✗ Failed to initialize Qdrant client: {str(e)}")
-                raise RuntimeError(f"Qdrant initialization failed: {str(e)}")
+                self._client = None
+                raise QdrantUnavailableError(f"Qdrant initialization failed: {str(e)}") from e
         
         return self._client
+
+    async def _with_timeout(self, awaitable, operation: str):
+        """Run a Qdrant awaitable with a configured timeout."""
+        try:
+            return await asyncio.wait_for(awaitable, timeout=settings.qdrant_timeout_seconds)
+        except asyncio.TimeoutError as e:
+            raise QdrantUnavailableError(f"Qdrant {operation} timed out") from e
+        except QdrantServiceError:
+            raise
+        except Exception as e:
+            raise QdrantOperationError(f"Qdrant {operation} failed: {str(e)}") from e
     
     async def _ensure_collection(self) -> None:
         """
@@ -90,29 +117,37 @@ class QdrantService:
             return
         
         try:
-            collections = await self._client.get_collections()
+            collections = await self._with_timeout(self._client.get_collections(), "list collections")
             exists = any(c.name == self.collection_name for c in collections.collections)
             
             if not exists:
-                await self._client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=VectorParams(
-                        size=settings.embedding_dim,  # 512 dimensions
-                        distance=Distance.COSINE
-                    )
+                await self._with_timeout(
+                    self._client.create_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=VectorParams(
+                            size=settings.embedding_dim,  # 512 dimensions
+                            distance=Distance.COSINE
+                        )
+                    ),
+                    "create collection",
                 )
                 
                 # Create payload index for user_id (faster filtering)
-                await self._client.create_payload_index(
-                    collection_name=self.collection_name,
-                    field_name="user_id",
-                    field_schema=PayloadSchemaType.KEYWORD
+                await self._with_timeout(
+                    self._client.create_payload_index(
+                        collection_name=self.collection_name,
+                        field_name="user_id",
+                        field_schema=PayloadSchemaType.KEYWORD
+                    ),
+                    "create payload index",
                 )
                 
                 logger.info(f"✓ Created Qdrant collection: {self.collection_name}")
+        except QdrantServiceError:
+            raise
         except Exception as e:
             logger.error(f"✗ Failed to ensure collection: {str(e)}")
-            raise
+            raise QdrantUnavailableError(f"Qdrant collection setup failed: {str(e)}") from e
     
     async def is_connected(self) -> bool:
         """
@@ -123,7 +158,7 @@ class QdrantService:
         """
         try:
             client = await self.get_client()
-            await client.get_collections()
+            await self._with_timeout(client.get_collections(), "connection check")
             return True
         except Exception as e:
             logger.warning(f"Qdrant connection check failed: {str(e)}")
@@ -184,10 +219,13 @@ class QdrantService:
                 )
             
             # Step 3: Upsert all points
-            await client.upsert(
-                collection_name=self.collection_name,
-                points=points,
-                wait=True
+            await self._with_timeout(
+                client.upsert(
+                    collection_name=self.collection_name,
+                    points=points,
+                    wait=True
+                ),
+                "upsert embeddings",
             )
             
             logger.info(f"✓ Enrolled {len(points)} embeddings for user_id={user_id}")
@@ -198,14 +236,11 @@ class QdrantService:
                 "total_embeddings": len(points),
                 "message": f"Enrolled {len(points)} face embeddings successfully"
             }
-            
+        except QdrantServiceError:
+            raise
         except Exception as e:
             logger.error(f"✗ Enrollment error for user_id={user_id}: {str(e)}")
-            return {
-                "success": False,
-                "inserted_count": 0,
-                "message": f"Enrollment failed: {str(e)}"
-            }
+            raise QdrantOperationError(f"Enrollment failed for user_id={user_id}: {str(e)}") from e
     
     async def retrieve_user_embeddings(self, user_id: str) -> List[Dict[str, Any]]:
         """
@@ -229,19 +264,22 @@ class QdrantService:
             client = await self.get_client()
             
             # Scroll through all points matching user_id
-            result, _ = await client.scroll(
-                collection_name=self.collection_name,
-                scroll_filter=Filter(
-                    must=[
-                        FieldCondition(
-                            key="user_id",
-                            match=MatchValue(value=user_id)
-                        )
-                    ]
+            result, _ = await self._with_timeout(
+                client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="user_id",
+                                match=MatchValue(value=user_id)
+                            )
+                        ]
+                    ),
+                    with_vectors=True,
+                    with_payload=True,
+                    limit=100  # Max embeddings per user (10 expected, buffer for safety)
                 ),
-                with_vectors=True,
-                with_payload=True,
-                limit=100  # Max embeddings per user (10 expected, buffer for safety)
+                "retrieve embeddings",
             )
             
             embeddings = []
@@ -253,10 +291,11 @@ class QdrantService:
                 })
             
             return embeddings
-            
+        except QdrantServiceError:
+            raise
         except Exception as e:
             logger.error(f"✗ Error retrieving embeddings for user_id={user_id}: {str(e)}")
-            return []
+            raise QdrantOperationError(f"Failed to retrieve embeddings for user_id={user_id}: {str(e)}") from e
     
     async def verify_face_1to1(
         self,
@@ -332,9 +371,11 @@ class QdrantService:
                 "best_match_index": best_match_index
             }
             
+        except QdrantServiceError:
+            raise
         except Exception as e:
             logger.error(f"✗ Verification error for user_id={user_id}: {str(e)}")
-            return None
+            raise QdrantOperationError(f"Verification failed for user_id={user_id}: {str(e)}") from e
     
     async def delete_user_embeddings(self, user_id: str) -> int:
         """
@@ -355,25 +396,29 @@ class QdrantService:
             count_before = await self.get_user_embedding_count(user_id)
             
             # Delete all points matching user_id
-            await client.delete(
-                collection_name=self.collection_name,
-                points_selector=Filter(
-                    must=[
-                        FieldCondition(
-                            key="user_id",
-                            match=MatchValue(value=user_id)
-                        )
-                    ]
+            await self._with_timeout(
+                client.delete(
+                    collection_name=self.collection_name,
+                    points_selector=Filter(
+                        must=[
+                            FieldCondition(
+                                key="user_id",
+                                match=MatchValue(value=user_id)
+                            )
+                        ]
+                    ),
+                    wait=True
                 ),
-                wait=True
+                "delete embeddings",
             )
             
             logger.info(f"Deleted {count_before} embeddings for user_id={user_id}")
             return count_before
-            
+        except QdrantServiceError:
+            raise
         except Exception as e:
             logger.error(f"✗ Error deleting embeddings for user_id={user_id}: {str(e)}")
-            return 0
+            raise QdrantOperationError(f"Failed to delete embeddings for user_id={user_id}: {str(e)}") from e
     
     async def get_user_embedding_count(self, user_id: str) -> int:
         """
@@ -388,23 +433,27 @@ class QdrantService:
         try:
             client = await self.get_client()
             
-            result = await client.count(
-                collection_name=self.collection_name,
-                count_filter=Filter(
-                    must=[
-                        FieldCondition(
-                            key="user_id",
-                            match=MatchValue(value=user_id)
-                        )
-                    ]
+            result = await self._with_timeout(
+                client.count(
+                    collection_name=self.collection_name,
+                    count_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="user_id",
+                                match=MatchValue(value=user_id)
+                            )
+                        ]
+                    ),
+                    exact=True
                 ),
-                exact=True
+                "count embeddings",
             )
             return result.count
-            
+        except QdrantServiceError:
+            raise
         except Exception as e:
             logger.error(f"✗ Error counting embeddings for user_id={user_id}: {str(e)}")
-            return 0
+            raise QdrantOperationError(f"Failed to count embeddings for user_id={user_id}: {str(e)}") from e
 
 
 # Global Qdrant service instance
