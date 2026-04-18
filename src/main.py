@@ -74,7 +74,24 @@ async def enforce_request_size(request: Request, call_next):
         try:
             request_size = int(content_length)
         except ValueError:
-            request_size = 0
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": "error",
+                    "error": "InvalidContentLength",
+                    "message": "Content-Length header must be a valid non-negative integer",
+                },
+            )
+
+        if request_size < 0:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": "error",
+                    "error": "InvalidContentLength",
+                    "message": "Content-Length header must be a valid non-negative integer",
+                },
+            )
 
         if request_size > settings.max_request_bytes:
             return JSONResponse(

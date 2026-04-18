@@ -9,17 +9,13 @@ import numpy as np
 import cv2
 from PIL import Image, UnidentifiedImageError
 
+from src.base64_utils import estimate_base64_decoded_size
 from src.config import settings
 
 
 class ImageDecodeError(Exception):
     """Custom exception for image decoding errors."""
     pass
-
-
-def _estimate_base64_decoded_size(value: str) -> int:
-    padding = len(value) - len(value.rstrip("="))
-    return (len(value) * 3 // 4) - padding
 
 
 def validate_image_bytes(image_bytes: bytes) -> None:
@@ -103,7 +99,7 @@ def decode_base64_image(image_b64: str) -> np.ndarray:
             _, image_b64 = image_b64.split(",", 1)
 
         image_b64 = "".join(image_b64.split())
-        if _estimate_base64_decoded_size(image_b64) > settings.max_image_bytes:
+        if estimate_base64_decoded_size(image_b64) > settings.max_image_bytes:
             raise ImageDecodeError(f"Image exceeds {settings.max_image_bytes} byte limit")
         
         image_bytes = base64.b64decode(image_b64, validate=True)

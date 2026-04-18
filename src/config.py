@@ -3,7 +3,7 @@ Configuration module using Pydantic Settings.
 Loads environment variables from .env file.
 """
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -155,6 +155,15 @@ class Settings(BaseSettings):
             for value in self.cors_allowed_origins.split(",")
             if value.strip()
         ] or ["*"]
+
+    @model_validator(mode="after")
+    def validate_cors_credentials(self) -> "Settings":
+        """Reject invalid wildcard CORS config when credentials are enabled."""
+        if self.cors_allow_credentials and "*" in self.cors_allowed_origin_list:
+            raise ValueError(
+                "CORS_ALLOW_CREDENTIALS=true requires explicit CORS_ALLOWED_ORIGINS; wildcard '*' is invalid"
+            )
+        return self
 
 
 # Global settings instance

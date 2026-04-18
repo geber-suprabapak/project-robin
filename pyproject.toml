@@ -47,8 +47,6 @@ dev = [
 omit = [
     "src/core/inference_engine.py",
     "src/services/face_detector.py",
-    "src/services/qdrant_client.py",
-    "src/services/supabase_client.py",
 ]
 
 [tool.ruff]

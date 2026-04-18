@@ -4,6 +4,7 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
+from src.base64_utils import estimate_base64_decoded_size
 from src.config import settings
 from src.services.image_decoder import ImageDecodeError, decode_base64_image, decode_image_bytes, validate_image_bytes
 
@@ -45,3 +46,7 @@ def test_decode_base64_ignores_data_uri_mime_metadata():
     image = decode_base64_image(f"data:text/plain;base64,{payload}")
 
     assert image.shape == (8, 8, 3)
+
+
+def test_estimate_base64_decoded_size_accounts_for_padding():
+    assert estimate_base64_decoded_size("YWJjZA==") == 4

@@ -60,7 +60,7 @@ class QdrantService:
             AsyncQdrantClient instance
             
         Raises:
-            RuntimeError: If client initialization fails
+            QdrantUnavailableError: If client initialization fails
         """
         if self._client is None:
             try:

@@ -6,7 +6,7 @@ This service now focuses solely on user profile lookup and management.
 """
 
 from typing import Optional, Dict, Any
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 import asyncio
 import logging
 
@@ -50,7 +50,12 @@ class SupabaseService:
             
             self.client = create_client(
                 supabase_url=settings.supabase_url,
-                supabase_key=settings.supabase_service_role_key or settings.supabase_key
+                supabase_key=settings.supabase_service_role_key or settings.supabase_key,
+                options=ClientOptions(
+                    postgrest_client_timeout=settings.supabase_timeout_seconds,
+                    storage_client_timeout=settings.supabase_timeout_seconds,
+                    function_client_timeout=settings.supabase_timeout_seconds,
+                ),
             )
             logger.info("✓ Supabase client initialized successfully")
             
@@ -68,17 +73,14 @@ class SupabaseService:
         return self.client is not None
 
     async def _execute_with_retry(self, operation: str, func):
-        """Run sync Supabase calls off the event loop with timeout and retry."""
+        """Run sync Supabase calls off the event loop with client-level timeout and retry."""
         if not self.is_connected():
             raise SupabaseUnavailableError("Supabase client is not configured")
 
         last_error: Exception | None = None
         for attempt in range(settings.supabase_max_retries + 1):
             try:
-                return await asyncio.wait_for(
-                    run_in_threadpool(func),
-                    timeout=settings.supabase_timeout_seconds,
-                )
+                return await run_in_threadpool(func)
             except asyncio.TimeoutError as e:
                 last_error = e
                 logger.warning("Supabase %s timed out on attempt %s", operation, attempt + 1)

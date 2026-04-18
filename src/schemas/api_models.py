@@ -3,19 +3,11 @@ Pydantic models for API request and response schemas.
 """
 
 from typing import Optional
-import re
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from src.base64_utils import BASE64_RE, estimate_base64_decoded_size
 from src.config import settings
-
-
-_BASE64_RE = re.compile(r"^[A-Za-z0-9+/]*={0,2}$")
-
-
-def _estimate_base64_decoded_size(value: str) -> int:
-    padding = len(value) - len(value.rstrip("="))
-    return (len(value) * 3 // 4) - padding
 
 
 class IdentifyRequest(BaseModel):
@@ -37,9 +29,9 @@ class IdentifyRequest(BaseModel):
         compact = "".join(value.split())
         if len(compact) % 4 != 0:
             raise ValueError("Invalid base64 string length")
-        if not _BASE64_RE.fullmatch(compact):
+        if not BASE64_RE.fullmatch(compact):
             raise ValueError("Invalid base64 characters")
-        if _estimate_base64_decoded_size(compact) > settings.max_image_bytes:
+        if estimate_base64_decoded_size(compact) > settings.max_image_bytes:
             raise ValueError(f"Image exceeds {settings.max_image_bytes} byte limit")
         return compact
 
