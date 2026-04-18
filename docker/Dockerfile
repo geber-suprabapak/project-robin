@@ -35,11 +35,11 @@ RUN uv python install "${PYTHON_VERSION}" && \
 
 COPY src ./src
 
-RUN mkdir -p /app/models /app/logs
+RUN mkdir -p /app/models/face_detector /app/runtime-models /app/logs
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/ready || exit 1
 
 CMD ["python", "-m", "src.main"]

@@ -3,13 +3,82 @@ Image decoding service for converting Base64 strings to numpy arrays.
 """
 
 import base64
+import binascii
+from io import BytesIO
 import numpy as np
 import cv2
+from PIL import Image, UnidentifiedImageError
+
+from src.base64_utils import estimate_base64_decoded_size
+from src.config import settings
 
 
 class ImageDecodeError(Exception):
     """Custom exception for image decoding errors."""
     pass
+
+
+def validate_image_bytes(image_bytes: bytes) -> None:
+    """
+    Validate image size, format readability, and dimensions before OpenCV decode.
+
+    Args:
+        image_bytes: Raw encoded image bytes
+
+    Raises:
+        ImageDecodeError: If the image violates configured guardrails
+    """
+    if not image_bytes:
+        raise ImageDecodeError("Image is empty")
+    if len(image_bytes) > settings.max_image_bytes:
+        raise ImageDecodeError(f"Image exceeds {settings.max_image_bytes} byte limit")
+
+    try:
+        Image.MAX_IMAGE_PIXELS = settings.max_image_pixels
+        with Image.open(BytesIO(image_bytes)) as image:
+            width, height = image.size
+
+            if width > settings.max_image_width or height > settings.max_image_height:
+                raise ImageDecodeError(
+                    f"Image dimensions exceed {settings.max_image_width}x{settings.max_image_height}"
+                )
+            if width * height > settings.max_image_pixels:
+                raise ImageDecodeError(f"Image exceeds {settings.max_image_pixels} pixel limit")
+
+            image.verify()
+    except ImageDecodeError:
+        raise
+    except UnidentifiedImageError as e:
+        raise ImageDecodeError("Failed to decode image - corrupt or unsupported format") from e
+    except Exception as e:
+        raise ImageDecodeError(f"Image validation failed: {str(e)}") from e
+
+
+def decode_image_bytes(image_bytes: bytes) -> np.ndarray:
+    """
+    Decode raw encoded image bytes to a numpy array (OpenCV format).
+
+    Args:
+        image_bytes: Raw encoded image bytes
+
+    Returns:
+        numpy array in BGR format (OpenCV default)
+
+    Raises:
+        ImageDecodeError: If validation or decoding fails
+    """
+    validate_image_bytes(image_bytes)
+
+    try:
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if image is None:
+            raise ImageDecodeError("Failed to decode image - corrupt or unsupported format")
+
+        return image
+    except cv2.error as e:
+        raise ImageDecodeError(f"OpenCV decoding failed: {str(e)}") from e
 
 
 def decode_base64_image(image_b64: str) -> np.ndarray:
@@ -26,30 +95,21 @@ def decode_base64_image(image_b64: str) -> np.ndarray:
         ImageDecodeError: If decoding fails or image is corrupt
     """
     try:
-        # Remove data URI prefix if present (e.g., "data:image/jpeg;base64,")
         if "," in image_b64:
-            image_b64 = image_b64.split(",", 1)[1]
+            _, image_b64 = image_b64.split(",", 1)
+
+        image_b64 = "".join(image_b64.split())
+        if estimate_base64_decoded_size(image_b64) > settings.max_image_bytes:
+            raise ImageDecodeError(f"Image exceeds {settings.max_image_bytes} byte limit")
         
-        # Decode base64 to bytes
         image_bytes = base64.b64decode(image_b64, validate=True)
-        
-        # Convert bytes to numpy array
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        
-        # Decode image using OpenCV
-        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if image is None:
-            raise ImageDecodeError("Failed to decode image - corrupt or unsupported format")
-        
-        return image
-        
-    except base64.binascii.Error as e:
-        raise ImageDecodeError(f"Invalid base64 encoding: {str(e)}")
-    except cv2.error as e:
-        raise ImageDecodeError(f"OpenCV decoding failed: {str(e)}")
+        return decode_image_bytes(image_bytes)
+    except binascii.Error as e:
+        raise ImageDecodeError(f"Invalid base64 encoding: {str(e)}") from e
+    except ImageDecodeError:
+        raise
     except Exception as e:
-        raise ImageDecodeError(f"Unexpected error during image decoding: {str(e)}")
+        raise ImageDecodeError(f"Unexpected error during image decoding: {str(e)}") from e
 
 
 def preprocess_face_image(

@@ -38,8 +38,15 @@ package = false
 
 [dependency-groups]
 dev = [
+    "pytest-cov>=5.0.0",
     "pytest>=8.0.0",
     "ruff>=0.8.0",
+]
+
+[tool.coverage.run]
+omit = [
+    "src/core/inference_engine.py",
+    "src/services/face_detector.py",
 ]
 
 [tool.ruff]

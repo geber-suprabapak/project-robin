@@ -7,18 +7,11 @@ import logging
 import cv2
 import numpy as np
 from typing import List, Tuple
-from pathlib import Path
+
+from src.config import settings
+from src.services.model_downloader import ModelDownloadError, ensure_model_asset
 
 logger = logging.getLogger(__name__)
-
-# DNN model configuration
-_PROTOTXT_URL = "https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt"
-_MODEL_URL = "https://raw.githubusercontent.com/opencv/opencv_3rdparty/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel"
-
-# Local paths for cached models
-_MODELS_DIR = Path(__file__).parent.parent / "models"
-_PROTOTXT_PATH = _MODELS_DIR / "deploy.prototxt"
-_MODEL_PATH = _MODELS_DIR / "res10_300x300_ssd_iter_140000.caffemodel"
 
 # Global DNN network (lazy loaded)
 _face_net = None
@@ -29,21 +22,27 @@ class FaceDetectionError(Exception):
     pass
 
 
-def _download_model_if_needed() -> Tuple[str, str]:
-    """Download DNN model files if not present."""
-    import urllib.request
-    
-    _MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    
-    if not _PROTOTXT_PATH.exists():
-        logger.info(f"Downloading face detector prototxt to {_PROTOTXT_PATH}")
-        urllib.request.urlretrieve(_PROTOTXT_URL, _PROTOTXT_PATH)
-    
-    if not _MODEL_PATH.exists():
-        logger.info(f"Downloading face detector model to {_MODEL_PATH}")
-        urllib.request.urlretrieve(_MODEL_URL, _MODEL_PATH)
-    
-    return str(_PROTOTXT_PATH), str(_MODEL_PATH)
+def _resolve_model_paths() -> Tuple[str, str]:
+    """Resolve face detector model files, downloading defaults when missing."""
+    try:
+        prototxt_path = ensure_model_asset(
+            settings.face_detector_prototxt_path,
+            url=settings.face_detector_prototxt_url,
+            checksum=settings.face_detector_prototxt_checksum,
+            auto_download=settings.auto_download_models,
+            description="face detector prototxt",
+        )
+        model_path = ensure_model_asset(
+            settings.face_detector_model_path,
+            url=settings.face_detector_model_url,
+            checksum=settings.face_detector_model_checksum,
+            auto_download=settings.auto_download_models,
+            description="face detector model",
+        )
+    except ModelDownloadError as e:
+        raise FaceDetectionError(str(e)) from e
+
+    return str(prototxt_path), str(model_path)
 
 
 def _get_face_net() -> cv2.dnn.Net:
@@ -51,12 +50,22 @@ def _get_face_net() -> cv2.dnn.Net:
     global _face_net
     
     if _face_net is None:
-        prototxt_path, model_path = _download_model_if_needed()
+        prototxt_path, model_path = _resolve_model_paths()
         logger.info("Loading DNN face detector model...")
         _face_net = cv2.dnn.readNetFromCaffe(prototxt_path, model_path)
         logger.info("DNN face detector model loaded successfully")
     
     return _face_net
+
+
+def is_face_detector_ready() -> bool:
+    """Return whether the face detector can be loaded from local assets."""
+    try:
+        _get_face_net()
+        return True
+    except Exception as e:
+        logger.warning(f"Face detector readiness check failed: {str(e)}")
+        return False
 
 
 def detect_faces(

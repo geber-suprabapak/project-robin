@@ -5,8 +5,9 @@ High-performance REST API for face recognition processing with GPU acceleration.
 
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.config import settings
 from src.core.inference_engine import inference_engine
@@ -64,13 +65,54 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+@app.middleware("http")
+async def enforce_request_size(request: Request, call_next):
+    """Reject oversized requests before body parsing when Content-Length is present."""
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            request_size = int(content_length)
+        except ValueError:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": "error",
+                    "error": "InvalidContentLength",
+                    "message": "Content-Length header must be a valid non-negative integer",
+                },
+            )
+
+        if request_size < 0:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": "error",
+                    "error": "InvalidContentLength",
+                    "message": "Content-Length header must be a valid non-negative integer",
+                },
+            )
+
+        if request_size > settings.max_request_bytes:
+            return JSONResponse(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                content={
+                    "status": "error",
+                    "error": "RequestTooLarge",
+                    "message": f"Request exceeds {settings.max_request_bytes} byte limit",
+                },
+            )
+
+    return await call_next(request)
+
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=settings.cors_allowed_origin_list,
+    allow_credentials=settings.cors_allow_credentials,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Register routers

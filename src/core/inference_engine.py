@@ -11,6 +11,7 @@ import numpy as np
 import onnxruntime as ort
 
 from src.config import settings
+from src.services.model_downloader import ModelDownloadError, ensure_model_asset
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +60,21 @@ class FaceInferenceEngine:
             return
         
         model_path = model_path or settings.model_path
-        
+
         if not os.path.exists(model_path):
-            raise FileNotFoundError(
-                f"Model file not found: {model_path}\n"
-                f"Please download an ArcFace ONNX model and place it at this location."
-            )
-        
+            try:
+                model_path = str(
+                    ensure_model_asset(
+                        model_path,
+                        url=settings.model_download_url,
+                        checksum=settings.model_download_checksum,
+                        auto_download=settings.auto_download_models,
+                        description="face recognition ONNX model",
+                    )
+                )
+            except ModelDownloadError as e:
+                raise FileNotFoundError(str(e)) from e
+
         try:
             # Configure execution providers with GPU priority
             providers = self._configure_providers()

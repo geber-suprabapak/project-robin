@@ -3,14 +3,12 @@
 import logging
 from typing import List
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Depends
-import numpy as np
-import cv2
 
 from src.config import settings
 from src.core.inference_engine import inference_engine
-from src.services.image_decoder import preprocess_face_image
-from src.services.qdrant_client import qdrant_service
-from src.services.supabase_client import supabase_service
+from src.services.image_decoder import ImageDecodeError, decode_image_bytes, preprocess_face_image
+from src.services.qdrant_client import QdrantServiceError, qdrant_service
+from src.services.supabase_client import SupabaseServiceError, supabase_service
 from src.services.face_detector import validate_single_face, crop_face_from_image
 from src.dependencies import verify_jwt_bearer
 from src.schemas.api_models import EnrollResponse, EnrollStatusResponse, ErrorResponse
@@ -19,6 +17,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Face Recognition"])
 
 REQUIRED_IMAGES = 10
+READ_CHUNK_SIZE = 1024 * 1024
+
+
+async def _read_upload_file_limited(file: UploadFile) -> bytes:
+    """Read an uploaded image without allowing unbounded memory use."""
+    chunks = []
+    total_size = 0
+    while True:
+        chunk = await file.read(READ_CHUNK_SIZE)
+        if not chunk:
+            break
+
+        total_size += len(chunk)
+        if total_size > settings.max_image_bytes:
+            raise ImageDecodeError(f"Image exceeds {settings.max_image_bytes} byte limit")
+        chunks.append(chunk)
+
+    return b"".join(chunks)
 
 
 @router.get(
@@ -29,6 +45,7 @@ REQUIRED_IMAGES = 10
     responses={
         200: {"description": "Enrollment status retrieved"},
         401: {"model": ErrorResponse, "description": "Invalid or expired JWT token"},
+        503: {"model": ErrorResponse, "description": "Dependency unavailable"},
         500: {"model": ErrorResponse, "description": "Server error"}
     }
 )
@@ -47,6 +64,12 @@ async def check_enrollment_status(
             embedding_count=count,
             user_id=user_id
         )
+    except QdrantServiceError as e:
+        logger.exception(f"Qdrant error checking enrollment status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Embedding store is unavailable"
+        )
     except Exception as e:
         logger.exception(f"Error checking enrollment status: {e}")
         raise HTTPException(
@@ -64,6 +87,7 @@ async def check_enrollment_status(
         200: {"description": "User enrolled successfully"},
         400: {"model": ErrorResponse, "description": "Invalid images or count"},
         401: {"model": ErrorResponse, "description": "Invalid or expired JWT token"},
+        503: {"model": ErrorResponse, "description": "Dependency unavailable"},
         500: {"model": ErrorResponse, "description": "Server error"}
     }
 )
@@ -102,11 +126,8 @@ async def enroll_user(
         for idx, file in enumerate(files):
             image_name = file.filename or f"image_{idx+1}"
             try:
-                contents = await file.read()
-                image_np = cv2.imdecode(np.frombuffer(contents, np.uint8), cv2.IMREAD_COLOR)
-                if image_np is None:
-                    failed_images.append({"index": idx+1, "name": image_name, "error": "Failed to decode"})
-                    continue
+                contents = await _read_upload_file_limited(file)
+                image_np = decode_image_bytes(contents)
                 
                 is_valid, _, face_message = validate_single_face(image_np)
                 if not is_valid:
@@ -138,20 +159,23 @@ async def enroll_user(
             model_name=settings.model_path.split("/")[-1].replace(".onnx", "")
         )
         
-        if result["success"]:
-            logger.info(f"✅ Enrollment complete - user_id: {user_id}, Embeddings: {result['total_embeddings']}")
-            return EnrollResponse(
-                status="success",
-                student_id=user_id,
-                images_processed=result["inserted_count"],
-                images_failed=len(failed_images),
-                total_embeddings=result["total_embeddings"],
-                message=f"Face enrolled successfully with {result['total_embeddings']} images"
-            )
-        
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
+        logger.info(f"✅ Enrollment complete - user_id: {user_id}, Embeddings: {result['total_embeddings']}")
+        return EnrollResponse(
+            status="success",
+            student_id=user_id,
+            images_processed=result["inserted_count"],
+            images_failed=len(failed_images),
+            total_embeddings=result["total_embeddings"],
+            message=f"Face enrolled successfully with {result['total_embeddings']} images"
+        )
     except HTTPException:
         raise
+    except (QdrantServiceError, SupabaseServiceError) as e:
+        logger.exception(f"Dependency error during enrollment: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Required dependency is unavailable"
+        )
     except Exception as e:
         logger.exception(f"Unexpected error: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Internal error: {e}")
