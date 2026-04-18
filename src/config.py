@@ -35,8 +35,8 @@ class Settings(BaseSettings):
         description="Skip ONNX model loading for CI smoke tests"
     )
     auto_download_models: bool = Field(
-        default=True,
-        description="Download missing runtime model assets automatically"
+        default=False,
+        description="Download missing runtime model assets only when explicitly enabled"
     )
     model_download_url: str = Field(
         default=(

@@ -4,6 +4,12 @@ from pydantic import ValidationError
 from src.config import Settings
 
 
+def test_settings_disables_auto_download_by_default():
+    settings = Settings()
+
+    assert settings.auto_download_models is False
+
+
 def test_settings_rejects_wildcard_cors_with_credentials():
     with pytest.raises(ValidationError, match="requires explicit CORS_ALLOWED_ORIGINS"):
         Settings(cors_allowed_origins="*", cors_allow_credentials=True)

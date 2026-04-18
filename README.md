@@ -205,7 +205,7 @@ Konfigurasi utama:
 | `IMAGE_TAG` | Tag image CPU yang dipakai Compose |
 | `MODEL_PATH` | Path model ONNX di dalam container |
 | `MODEL_INPUT_SIZE` | Ukuran input model ONNX |
-| `AUTO_DOWNLOAD_MODELS` | Download asset model otomatis jika file belum ada |
+| `AUTO_DOWNLOAD_MODELS` | `false` by default; set `true` hanya jika server boleh fetch asset missing |
 | `SKIP_MODEL_LOAD` | `true` hanya untuk CI smoke test |
 | `GPU_DEVICE_ID` | `-1` untuk CPU, `0` untuk GPU pertama |
 | `SUPABASE_URL` | URL project Supabase |
@@ -233,7 +233,7 @@ Validasi size dan konversi image utama tetap sebaiknya dilakukan di client. Guar
 
 ## Model dan Asset
 
-Model face recognition ONNX tidak dibake ke image Docker. Secara default runtime akan download AuraFace `glintr100.onnx` ke host-mounted `./models` jika file belum ada.
+Model face recognition ONNX tidak dibake ke image Docker. Secara default production runtime mengecek AuraFace `glintr100.onnx` dari host-mounted `./models` dan tidak download otomatis.
 
 Default ini dipilih karena model card AuraFace menyatakan license `apache-2.0` dan menjelaskan bahwa model dilatih untuk skenario commercial setting. Untuk production, tetap lakukan evaluasi internal pada data sekolah/lembaga sendiri karena model card juga mencatat performa dapat bervariasi antar etnis dan cakupan data training tidak sempurna.
 
@@ -261,14 +261,14 @@ Default `MODEL_INPUT_SIZE`:
 112
 ```
 
-Face detector OpenCV DNN juga didownload otomatis saat missing:
+Face detector OpenCV DNN dibake ke official Docker image saat build dan dicek dari local path:
 
 ```text
 /app/models/face_detector/deploy.prototxt
 /app/models/face_detector/res10_300x300_ssd_iter_140000.caffemodel
 ```
 
-Semua download diverifikasi checksum. Jika server production tidak boleh akses internet, isi file model sekali di host, atau build image internal yang sudah membawa asset tersebut.
+Jika file face recognition ONNX belum ada, container akan gagal start/readiness dengan error missing model. Isi file sekali di host, atau build image internal yang sudah membawa asset tersebut. `AUTO_DOWNLOAD_MODELS=true` hanya dipakai jika server memang diizinkan fetch asset saat startup/readiness; semua download tetap diverifikasi checksum.
 
 Untuk model lain, jangan pakai model zoo yang hanya research/non-commercial untuk production. Hindari default InsightFace pack seperti `buffalo_l` atau `antelopev2` kecuali sudah punya commercial license. Jika mengganti model, override `MODEL_PATH`, `MODEL_INPUT_SIZE`, `MODEL_DOWNLOAD_URL`, dan `MODEL_DOWNLOAD_CHECKSUM` sesuai model yang license-nya jelas untuk production.
 
@@ -278,7 +278,7 @@ Development berjalan lewat Docker Compose override. Compose tetap memakai image 
 
 1. Buat `.env` dari `.env.example`.
 2. Isi konfigurasi model, Supabase, dan Qdrant external.
-3. Letakkan model ONNX di `./models` jika tidak ingin runtime download otomatis.
+3. Letakkan model ONNX di `./models`.
 4. Jalankan:
 
 ```bash
