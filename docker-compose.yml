@@ -9,10 +9,13 @@ services:
       API_PORT: "8000"
       API_WORKERS: "${API_WORKERS:-1}"
       ENVIRONMENT: "${ENVIRONMENT:-production}"
-      MODEL_PATH: "${MODEL_PATH:-/app/runtime-models/arcface_r100_224x224.onnx}"
-      MODEL_INPUT_SIZE: "${MODEL_INPUT_SIZE:-224}"
+      MODEL_PATH: "${MODEL_PATH:-/app/runtime-models/glintr100.onnx}"
+      MODEL_INPUT_SIZE: "${MODEL_INPUT_SIZE:-112}"
       EMBEDDING_DIM: "${EMBEDDING_DIM:-512}"
       SKIP_MODEL_LOAD: "${SKIP_MODEL_LOAD:-false}"
+      AUTO_DOWNLOAD_MODELS: "${AUTO_DOWNLOAD_MODELS:-true}"
+      MODEL_DOWNLOAD_URL: "${MODEL_DOWNLOAD_URL:-https://huggingface.co/fal/AuraFace-v1/resolve/686774cad65e40933022896195e07e01ee06bee9/glintr100.onnx}"
+      MODEL_DOWNLOAD_CHECKSUM: "${MODEL_DOWNLOAD_CHECKSUM:-sha256:a7933ea5330113b01c9b60351d8f4c33003f145d8470ac5f0e52ee2effe25c60}"
       CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-*}"
       CORS_ALLOW_CREDENTIALS: "${CORS_ALLOW_CREDENTIALS:-false}"
       MAX_REQUEST_BYTES: "${MAX_REQUEST_BYTES:-62914560}"
@@ -31,6 +34,10 @@ services:
       FACE_MATCH_THRESHOLD: "${FACE_MATCH_THRESHOLD:-0.6}"
       FACE_DETECTOR_PROTOTXT_PATH: "${FACE_DETECTOR_PROTOTXT_PATH:-/app/models/face_detector/deploy.prototxt}"
       FACE_DETECTOR_MODEL_PATH: "${FACE_DETECTOR_MODEL_PATH:-/app/models/face_detector/res10_300x300_ssd_iter_140000.caffemodel}"
+      FACE_DETECTOR_PROTOTXT_URL: "${FACE_DETECTOR_PROTOTXT_URL:-https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt}"
+      FACE_DETECTOR_PROTOTXT_CHECKSUM: "${FACE_DETECTOR_PROTOTXT_CHECKSUM:-sha256:dcd661dc48fc9de0a341db1f666a2164ea63a67265c7f779bc12d6b3f2fa67e9}"
+      FACE_DETECTOR_MODEL_URL: "${FACE_DETECTOR_MODEL_URL:-https://raw.githubusercontent.com/opencv/opencv_3rdparty/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel}"
+      FACE_DETECTOR_MODEL_CHECKSUM: "${FACE_DETECTOR_MODEL_CHECKSUM:-sha256:2a56a11a57a4a295956b0660b4a3d76bbdca2206c4961cea8efe7d95c7cb2f2d}"
       QDRANT_HOST: "${QDRANT_HOST:-localhost}"
       QDRANT_PORT: "${QDRANT_PORT:-6333}"
       QDRANT_HTTPS: "${QDRANT_HTTPS:-false}"
@@ -40,7 +47,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./models:/app/runtime-models:ro
+      - ./models:/app/runtime-models
       - ./logs:/app/logs
     restart: unless-stopped
     healthcheck:

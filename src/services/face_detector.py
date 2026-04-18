@@ -7,9 +7,9 @@ import logging
 import cv2
 import numpy as np
 from typing import List, Tuple
-from pathlib import Path
 
 from src.config import settings
+from src.services.model_downloader import ModelDownloadError, ensure_model_asset
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +23,24 @@ class FaceDetectionError(Exception):
 
 
 def _resolve_model_paths() -> Tuple[str, str]:
-    """Resolve pre-baked face detector model files."""
-    prototxt_path = Path(settings.face_detector_prototxt_path)
-    model_path = Path(settings.face_detector_model_path)
-
-    missing = [
-        str(path)
-        for path in (prototxt_path, model_path)
-        if not path.is_file()
-    ]
-    if missing:
-        raise FaceDetectionError(
-            "Face detector model assets are missing: " + ", ".join(missing)
+    """Resolve face detector model files, downloading defaults when missing."""
+    try:
+        prototxt_path = ensure_model_asset(
+            settings.face_detector_prototxt_path,
+            url=settings.face_detector_prototxt_url,
+            checksum=settings.face_detector_prototxt_checksum,
+            auto_download=settings.auto_download_models,
+            description="face detector prototxt",
         )
+        model_path = ensure_model_asset(
+            settings.face_detector_model_path,
+            url=settings.face_detector_model_url,
+            checksum=settings.face_detector_model_checksum,
+            auto_download=settings.auto_download_models,
+            description="face detector model",
+        )
+    except ModelDownloadError as e:
+        raise FaceDetectionError(str(e)) from e
 
     return str(prototxt_path), str(model_path)
 

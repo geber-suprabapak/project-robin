@@ -35,7 +35,7 @@ RUN uv python install "${PYTHON_VERSION}" && \
 
 COPY src ./src
 
-RUN mkdir -p /app/models/face_detector /app/logs
+RUN mkdir -p /app/models/face_detector /app/runtime-models /app/logs
 
 EXPOSE 8000
 
