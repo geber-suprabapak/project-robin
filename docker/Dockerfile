@@ -35,17 +35,7 @@ RUN uv python install "${PYTHON_VERSION}" && \
 
 COPY src ./src
 
-RUN mkdir -p /app/models/face_detector /app/logs && \
-    curl -fsSL \
-      https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt \
-      -o /app/models/face_detector/deploy.prototxt && \
-    echo "dcd661dc48fc9de0a341db1f666a2164ea63a67265c7f779bc12d6b3f2fa67e9  /app/models/face_detector/deploy.prototxt" \
-      | sha256sum -c - && \
-    curl -fsSL \
-      https://raw.githubusercontent.com/opencv/opencv_3rdparty/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel \
-      -o /app/models/face_detector/res10_300x300_ssd_iter_140000.caffemodel && \
-    echo "2a56a11a57a4a295956b0660b4a3d76bbdca2206c4961cea8efe7d95c7cb2f2d  /app/models/face_detector/res10_300x300_ssd_iter_140000.caffemodel" \
-      | sha256sum -c -
+RUN mkdir -p /app/models/face_detector /app/logs
 
 EXPOSE 8000
 
