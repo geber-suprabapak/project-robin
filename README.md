@@ -1,126 +1,260 @@
 # Project Robin
 
-Project Robin adalah API backend untuk presensi berbasis face recognition. Aplikasi ini menerima foto wajah dari client, memverifikasi identitas user lewat token Supabase, membuat embedding wajah dengan model ONNX, lalu membandingkannya dengan embedding yang tersimpan di Qdrant.
+> **Face recognition attendance API** — 1:1 face verification untuk sistem presensi sekolah/lembaga berbasis Supabase dan Qdrant.
 
-Target utama aplikasi ini adalah runtime on-prem atau server internal sekolah/lembaga yang butuh verifikasi wajah 1:1 untuk presensi. Runtime default memakai image CPU agar mudah dijalankan di server biasa, dengan opsi image GPU untuk deployment yang butuh akselerasi.
+Project Robin adalah REST API backend yang menerima foto wajah dari client, memverifikasi identitas user lewat token Supabase, membuat embedding wajah dengan model ONNX (AuraFace), lalu membandingkannya dengan embedding yang tersimpan di Qdrant. Target deployment utama adalah server on-prem atau server internal sekolah/lembaga.
 
-## Ringkasan Fitur
+---
 
-- Verifikasi presensi wajah 1:1 untuk user yang sedang login.
-- Enrollment wajah mandiri untuk menyimpan embedding user ke Qdrant.
-- Status enrollment untuk mengecek apakah user sudah punya embedding.
-- Validasi JWT Supabase di setiap endpoint fitur utama.
-- Integrasi Supabase untuk validasi user dan data siswa.
-- Integrasi Qdrant external untuk penyimpanan dan pencarian embedding.
-- Readiness check yang membedakan proses hidup dan dependency siap.
-- Docker image resmi dari GitHub Container Registry.
+## Daftar Isi
 
-## Cara Kerja
+- [Fitur](#fitur)
+- [Arsitektur](#arsitektur)
+- [Cara Kerja](#cara-kerja)
+- [Prasyarat](#prasyarat)
+- [Quick Start](#quick-start)
+- [Endpoint API](#endpoint-api)
+- [Use Case & Contoh Request](#use-case--contoh-request)
+- [Konfigurasi](#konfigurasi)
+- [Model & Asset](#model--asset)
+- [Health Check](#health-check)
+- [Error Reference](#error-reference)
+- [Development](#development)
+- [GPU Runtime](#gpu-runtime)
+- [CI/CD](#cicd)
+- [Quality Check Lokal](#quality-check-lokal)
 
-Alur presensi memakai endpoint `POST /v1/identify`.
+---
 
-1. Client mengirim `Authorization: Bearer <supabase-jwt>` dan `image_base64`.
-2. API memverifikasi JWT memakai `SUPABASE_JWT_SECRET`.
-3. API memastikan `sub` dari JWT ada di tabel `user_profiles` Supabase.
-4. Base64 image didecode, divalidasi secara minimal, lalu dicek harus berisi tepat satu wajah.
-5. Face crop dipreprocess ke ukuran input model.
-6. Model ONNX membuat embedding wajah.
-7. Qdrant mengambil embedding milik user yang sama.
-8. API menghitung cosine similarity 1:1.
-9. Jika match, API mengambil data siswa dari Supabase dan mengembalikan hasil verifikasi.
+## Fitur
 
-Alur enrollment memakai endpoint `POST /v1/enroll`.
+| Fitur | Keterangan |
+| --- | --- |
+| **Verifikasi presensi 1:1** | Cocokkan wajah user yang sedang login terhadap embedding miliknya di Qdrant |
+| **Enrollment mandiri** | User mengirim 10 foto untuk menyimpan embedding ke Qdrant |
+| **Status enrollment** | Cek apakah user sudah punya embedding tersimpan |
+| **Validasi JWT Supabase** | Setiap endpoint fitur utama diproteksi bearer token |
+| **Health & readiness check** | Bedakan "proses hidup" vs "semua dependency siap" |
+| **Guardrail request** | Batasan ukuran request, image, resolusi, dan pixel |
+| **CPU & GPU image** | Image resmi tersedia untuk CPU (default) dan NVIDIA GPU |
+| **Auto-download model** | Opsional; download AuraFace dari HuggingFace dengan verifikasi checksum |
 
-1. Client mengirim bearer token Supabase dan tepat 10 foto wajah.
-2. API memverifikasi user dari Supabase.
-3. Setiap foto dicek harus valid dan berisi tepat satu wajah.
-4. Setiap foto diproses menjadi embedding.
-5. Embedding lama user di Qdrant diganti dengan embedding baru.
-6. API mengembalikan jumlah image yang berhasil diproses dan total embedding tersimpan.
+---
 
 ## Arsitektur
 
-Project Robin terdiri dari satu service API FastAPI.
+```
+Client (mobile/web)
+        │
+        │  HTTPS + Bearer JWT
+        ▼
+┌───────────────────┐
+│   FastAPI API     │  ← Project Robin
+│                   │
+│  ┌─────────────┐  │       ┌──────────────┐
+│  │ ONNX Runtime│  │──────▶│   Qdrant     │  (external)
+│  │ (AuraFace)  │  │       │ vector store │
+│  └─────────────┘  │       └──────────────┘
+│  ┌─────────────┐  │       ┌──────────────┐
+│  │ OpenCV DNN  │  │──────▶│   Supabase   │  (external)
+│  │ face detect │  │       │  user/JWT    │
+│  └─────────────┘  │       └──────────────┘
+└───────────────────┘
+```
 
-Komponen runtime:
+**Komponen runtime:**
 
-- `FastAPI`: HTTP API, routing, middleware, auth dependency, dan response handling.
-- `ONNX Runtime`: menjalankan model face recognition dari file ONNX.
-- `OpenCV DNN`: face detector untuk memastikan foto berisi satu wajah.
-- `Supabase`: sumber data user profile, student profile, dan JWT secret.
-- `Qdrant`: vector database untuk embedding wajah.
+- **FastAPI** — HTTP API, routing, middleware, auth dependency, response handling
+- **ONNX Runtime** — menjalankan model face recognition dari file `.onnx`
+- **OpenCV DNN** — face detector untuk memastikan foto berisi tepat satu wajah
+- **Supabase** — validasi user profile, student profile, dan JWT secret
+- **Qdrant** — vector database untuk penyimpanan dan pencarian embedding wajah
 
-Qdrant tidak dijalankan oleh Docker Compose repository ini. Gunakan Qdrant external, baik self-hosted maupun Qdrant Cloud.
+> **Catatan:** Qdrant tidak dijalankan oleh Compose repository ini. Gunakan Qdrant external—baik self-hosted maupun Qdrant Cloud.
 
-## Endpoint
+---
+
+## Cara Kerja
+
+### Alur Presensi (`POST /v1/identify`)
+
+```
+Client                         API                      Supabase        Qdrant
+  │                             │                           │               │
+  │── POST /v1/identify ───────▶│                           │               │
+  │   Authorization: Bearer JWT │                           │               │
+  │   { "image_base64": "..." } │                           │               │
+  │                             │── verify JWT ────────────▶│               │
+  │                             │◀─ user sub ───────────────│               │
+  │                             │── lookup user_profiles ──▶│               │
+  │                             │◀─ user data ──────────────│               │
+  │                             │                           │               │
+  │                             │  [decode & validate image]│               │
+  │                             │  [detect face → crop]     │               │
+  │                             │  [run ONNX → embedding]   │               │
+  │                             │                           │               │
+  │                             │── search embedding ───────────────────────▶│
+  │                             │◀─ stored embedding ────────────────────────│
+  │                             │                           │               │
+  │                             │  [cosine similarity 1:1]  │               │
+  │                             │── get student profile ───▶│               │
+  │                             │◀─ student data ───────────│               │
+  │                             │                           │               │
+  │◀── 200 OK ─────────────────│                           │               │
+  │    { status, student_id,    │                           │               │
+  │      confidence, ... }      │                           │               │
+```
+
+### Alur Enrollment (`POST /v1/enroll`)
+
+1. Client mengirim bearer token Supabase + tepat **10 foto wajah** via `multipart/form-data`
+2. API memverifikasi user dari Supabase
+3. Setiap foto dicek validitas dan dipastikan berisi tepat satu wajah
+4. Setiap foto diproses menjadi embedding 512-dimensi
+5. Embedding lama user di Qdrant diganti dengan embedding baru
+6. API mengembalikan jumlah image berhasil diproses dan total embedding tersimpan
+
+---
+
+## Prasyarat
+
+Sebelum menjalankan Project Robin, siapkan:
+
+1. **Docker & Docker Compose** — untuk menjalankan container API
+2. **Supabase project** — dengan tabel `user_profiles`, `student_profiles`, dan JWT secret
+3. **Qdrant instance** — self-hosted atau Qdrant Cloud (external; tidak dijalankan Compose ini)
+4. **Model ONNX (AuraFace)** — file `glintr100.onnx` di direktori `./models/`
+
+### Mendapatkan Model AuraFace
+
+Model tidak dibake ke image Docker. Download manual sebelum start:
+
+```bash
+# Buat direktori models
+mkdir -p models
+
+# Download model AuraFace (glintr100.onnx)
+curl -L "https://huggingface.co/fal/AuraFace-v1/resolve/686774cad65e40933022896195e07e01ee06bee9/glintr100.onnx" \
+     -o models/glintr100.onnx
+
+# Verifikasi checksum (Linux/macOS)
+sha256sum models/glintr100.onnx
+# Expected: a7933ea5330113b01c9b60351d8f4c33003f145d8470ac5f0e52ee2effe25c60
+```
+
+Atau set `AUTO_DOWNLOAD_MODELS=true` di `.env` agar API mengunduh otomatis saat startup (membutuhkan akses internet).
+
+---
+
+## Quick Start
+
+### 1. Clone dan siapkan environment
+
+```bash
+git clone https://github.com/lunaradevs/project-robin.git
+cd project-robin
+
+# Buat file .env dari template
+cp .env.example .env
+```
+
+### 2. Isi konfigurasi di `.env`
+
+Minimal yang wajib diisi:
+
+```ini
+# Supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_JWT_SECRET=your-jwt-secret  # Dashboard → Settings → API → JWT Secret
+
+# Qdrant (external)
+QDRANT_HOST=https://your-qdrant-host.example.com
+QDRANT_API_KEY=your-qdrant-api-key   # Jika pakai Qdrant Cloud
+
+# Qdrant collection (buat manual di Qdrant sebelum start jika collection belum ada)
+QDRANT_COLLECTION_NAME=face_embeddings
+```
+
+### 3. Letakkan model ONNX
+
+```bash
+# Taruh file glintr100.onnx di sini:
+./models/glintr100.onnx
+```
+
+### 4. Pull image dan jalankan
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+API tersedia di `http://localhost:8000`.
+
+### 5. Verifikasi API berjalan
+
+```bash
+# Cek liveness (proses hidup)
+curl http://localhost:8000/live
+
+# Cek readiness (semua dependency siap)
+curl http://localhost:8000/ready
+```
+
+Response readiness OK:
+```json
+{
+  "status": "healthy",
+  "model_loaded": true,
+  "face_detector_ready": true,
+  "gpu_available": false,
+  "supabase_connected": true,
+  "qdrant_connected": true
+}
+```
+
+---
+
+## Endpoint API
 
 | Method | Path | Auth | Fungsi |
 | --- | --- | --- | --- |
-| `GET` | `/` | Tidak | Metadata API |
-| `GET` | `/live` | Tidak | Liveness process |
-| `GET` | `/ready` | Tidak | Readiness dependency |
-| `GET` | `/health` | Tidak | Alias readiness untuk backward compatibility |
-| `GET` | `/v1/enroll/status` | Bearer JWT | Status enrollment user |
-| `POST` | `/v1/enroll` | Bearer JWT | Enrollment wajah user |
-| `POST` | `/v1/identify` | Bearer JWT | Verifikasi wajah untuk presensi |
+| `GET` | `/` | ✗ | Metadata API (versi, nama) |
+| `GET` | `/live` | ✗ | Liveness — proses API hidup |
+| `GET` | `/ready` | ✗ | Readiness — semua dependency siap |
+| `GET` | `/health` | ✗ | Alias `/ready` (backward compat) |
+| `GET` | `/v1/enroll/status` | ✔ Bearer JWT | Cek apakah user sudah enrollment |
+| `POST` | `/v1/enroll` | ✔ Bearer JWT | Enrollment wajah user |
+| `POST` | `/v1/identify` | ✔ Bearer JWT | Verifikasi wajah untuk presensi |
 
-### `POST /v1/identify`
+---
 
-Request:
+## Use Case & Contoh Request
 
-```http
-Authorization: Bearer <supabase-jwt>
-Content-Type: application/json
+### Use Case 1: User pertama kali pakai aplikasi (enrollment)
+
+Sebelum bisa melakukan presensi, user perlu mendaftarkan wajahnya. Kirim tepat **10 foto** wajah yang jelas.
+
+**Request:**
+
+```bash
+curl -X POST http://localhost:8000/v1/enroll \
+  -H "Authorization: Bearer <supabase-jwt>" \
+  -F "files=@foto1.jpg" \
+  -F "files=@foto2.jpg" \
+  -F "files=@foto3.jpg" \
+  -F "files=@foto4.jpg" \
+  -F "files=@foto5.jpg" \
+  -F "files=@foto6.jpg" \
+  -F "files=@foto7.jpg" \
+  -F "files=@foto8.jpg" \
+  -F "files=@foto9.jpg" \
+  -F "files=@foto10.jpg"
 ```
 
-```json
-{
-  "image_base64": "<base64-image>"
-}
-```
-
-Response saat wajah cocok:
-
-```json
-{
-  "status": "ok",
-  "student_id": "12345678",
-  "student_name": "Ahmad Rizki",
-  "confidence": 0.95,
-  "process_time_ms": 45,
-  "message": "Face verified successfully"
-}
-```
-
-Response saat user belum enrollment:
-
-```json
-{
-  "status": "not_found",
-  "student_id": null,
-  "student_name": null,
-  "confidence": null,
-  "process_time_ms": 45,
-  "message": "No face embeddings enrolled for this user"
-}
-```
-
-### `POST /v1/enroll`
-
-Request:
-
-```http
-Authorization: Bearer <supabase-jwt>
-Content-Type: multipart/form-data
-```
-
-Field:
-
-| Field | Tipe | Keterangan |
-| --- | --- | --- |
-| `files` | file[] | Tepat 10 foto wajah |
-
-Response:
+**Response berhasil (`200`):**
 
 ```json
 {
@@ -133,15 +267,33 @@ Response:
 }
 ```
 
-### `GET /v1/enroll/status`
+**Response jika ada foto yang gagal (wajah tidak terdeteksi, dll):**
 
-Request:
-
-```http
-Authorization: Bearer <supabase-jwt>
+```json
+{
+  "status": "success",
+  "student_id": "550e8400-e29b-41d4-a716-446655440000",
+  "images_processed": 9,
+  "images_failed": 1,
+  "total_embeddings": 9,
+  "message": "Face enrolled successfully with 9 images"
+}
 ```
 
-Response:
+---
+
+### Use Case 2: Cek status enrollment
+
+Aplikasi client dapat mengecek apakah user sudah enrollment sebelum memperbolehkan presensi.
+
+**Request:**
+
+```bash
+curl http://localhost:8000/v1/enroll/status \
+  -H "Authorization: Bearer <supabase-jwt>"
+```
+
+**Response sudah enrollment (`200`):**
 
 ```json
 {
@@ -151,20 +303,228 @@ Response:
 }
 ```
 
+**Response belum enrollment (`200`):**
+
+```json
+{
+  "is_enrolled": false,
+  "embedding_count": 0,
+  "user_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+---
+
+### Use Case 3: Presensi harian (identifikasi wajah)
+
+User melakukan presensi dengan mengirim satu foto wajah dalam format base64.
+
+**Request:**
+
+```bash
+curl -X POST http://localhost:8000/v1/identify \
+  -H "Authorization: Bearer <supabase-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "image_base64": "<base64-encoded-image>"
+  }'
+```
+
+**Response wajah cocok (`200`):**
+
+```json
+{
+  "status": "ok",
+  "student_id": "12345678",
+  "student_name": "Ahmad Rizki",
+  "confidence": 0.95,
+  "process_time_ms": 45,
+  "message": "Face verified successfully"
+}
+```
+
+**Response user belum enrollment (`200`):**
+
+```json
+{
+  "status": "not_found",
+  "student_id": null,
+  "student_name": null,
+  "confidence": null,
+  "process_time_ms": 45,
+  "message": "No face embeddings enrolled for this user"
+}
+```
+
+**Response wajah tidak cocok (`200`):**
+
+```json
+{
+  "status": "not_found",
+  "student_id": null,
+  "student_name": null,
+  "confidence": 0.42,
+  "process_time_ms": 50,
+  "message": "Face did not match enrolled embeddings"
+}
+```
+
+> **Catatan:** Similarity di bawah `FACE_MATCH_THRESHOLD` (default `0.6`) dianggap tidak cocok. Field `status` berisi `"not_found"` hanya jika processing berhasil tapi wajah tidak cocok — bukan karena error dependency.
+
+---
+
+### Contoh encode image ke base64 (Python)
+
+```python
+import base64
+
+with open("foto.jpg", "rb") as f:
+    image_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+# Kirim ke API
+import httpx
+
+response = httpx.post(
+    "http://localhost:8000/v1/identify",
+    headers={"Authorization": f"Bearer {supabase_jwt}"},
+    json={"image_base64": image_base64},
+)
+print(response.json())
+```
+
+---
+
+## Konfigurasi
+
+Buat `.env` dari `.env.example`, lalu isi nilainya sesuai deployment.
+
+### Konfigurasi Wajib
+
+| Env | Keterangan |
+| --- | --- |
+| `SUPABASE_URL` | URL project Supabase (`https://xxx.supabase.co`) |
+| `SUPABASE_KEY` | Supabase anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key untuk server-side lookup |
+| `SUPABASE_JWT_SECRET` | Secret verifikasi JWT (Dashboard → Settings → API → JWT Secret) |
+| `QDRANT_HOST` | Host atau URL Qdrant external |
+| `QDRANT_COLLECTION_NAME` | Nama collection embedding (default: `face_embeddings`) |
+
+### Model & Inference
+
+| Env | Default | Keterangan |
+| --- | --- | --- |
+| `MODEL_PATH` | `/app/runtime-models/glintr100.onnx` | Path model ONNX di dalam container |
+| `MODEL_INPUT_SIZE` | `112` | Ukuran input model (AuraFace: 112×112) |
+| `EMBEDDING_DIM` | `512` | Dimensi vektor embedding |
+| `AUTO_DOWNLOAD_MODELS` | `false` | Set `true` agar API unduh model otomatis saat startup |
+| `MODEL_DOWNLOAD_URL` | HuggingFace URL | URL download model AuraFace |
+| `MODEL_DOWNLOAD_CHECKSUM` | `sha256:...` | Checksum untuk verifikasi download |
+| `SKIP_MODEL_LOAD` | `false` | `true` hanya untuk CI smoke test, **jangan** untuk runtime |
+
+### Qdrant
+
+| Env | Default | Keterangan |
+| --- | --- | --- |
+| `QDRANT_HOST` | `localhost` | Host/URL Qdrant |
+| `QDRANT_PORT` | `6333` | Port REST Qdrant |
+| `QDRANT_HTTPS` | `false` | Gunakan HTTPS untuk koneksi Qdrant |
+| `QDRANT_API_KEY` | _(kosong)_ | API key Qdrant Cloud |
+| `QDRANT_TIMEOUT_SECONDS` | `3` | Timeout request ke Qdrant |
+
+### Face Recognition
+
+| Env | Default | Keterangan |
+| --- | --- | --- |
+| `FACE_MATCH_THRESHOLD` | `0.6` | Cosine similarity minimum untuk dianggap cocok (0.0–1.0) |
+
+### GPU
+
+| Env | Default | Keterangan |
+| --- | --- | --- |
+| `GPU_DEVICE_ID` | `-1` | `-1` = CPU only; `0` = GPU pertama |
+| `GPU_MEM_LIMIT` | `2147483648` | Batas memori GPU dalam bytes (default: 2 GB) |
+
+### Guardrail Request & Image
+
+| Env | Default | Keterangan |
+| --- | --- | --- |
+| `MAX_REQUEST_BYTES` | `62914560` | Maks ukuran HTTP request (60 MB) |
+| `MAX_IMAGE_BYTES` | `5242880` | Maks ukuran image setelah decode (5 MB) |
+| `MAX_IMAGE_WIDTH` | `4096` | Lebar maksimum image |
+| `MAX_IMAGE_HEIGHT` | `4096` | Tinggi maksimum image |
+| `MAX_IMAGE_PIXELS` | `16777216` | Total pixel maksimum (16 MP) |
+
+> Validasi dan resize utama sebaiknya dilakukan di sisi client. Guardrail server adalah lapisan pengaman tambahan jika request dikirim langsung atau client bug.
+
+### Image & Server
+
+| Env | Default | Keterangan |
+| --- | --- | --- |
+| `IMAGE_NAME` | `ghcr.io/lunaradevs/project-robin` | Nama Docker image |
+| `IMAGE_TAG` | `cpu-latest` | Tag image CPU yang dipakai Compose |
+| `API_PORT` | `8000` | Port API di dalam container |
+| `API_WORKERS` | `1` | Jumlah worker Uvicorn (production mode) |
+| `ENVIRONMENT` | `production` | `development` atau `production` |
+| `CORS_ALLOWED_ORIGINS` | `*` | Allowed origins untuk CORS |
+
+---
+
+## Model & Asset
+
+### Model Face Recognition (AuraFace)
+
+Model **tidak dibake** ke image Docker. File harus tersedia di `./models/` sebelum container start.
+
+```
+./models/
+└── glintr100.onnx          ← mount ke /app/runtime-models/ di container
+```
+
+**Kenapa AuraFace?** Model card AuraFace menyatakan lisensi `apache-2.0` dan dilatih untuk skenario commercial setting. Untuk production, tetap lakukan evaluasi internal pada data institusi Anda karena model card juga mencatat bahwa performa dapat bervariasi antar etnis.
+
+> ⚠️ **Hindari** InsightFace default pack (`buffalo_l`, `antelopev2`) untuk production tanpa commercial license eksplisit.
+
+Jika mengganti model, override variabel berikut:
+
+```ini
+MODEL_PATH=/app/runtime-models/nama-model.onnx
+MODEL_INPUT_SIZE=112
+MODEL_DOWNLOAD_URL=https://...
+MODEL_DOWNLOAD_CHECKSUM=sha256:...
+```
+
+### Face Detector (OpenCV DNN)
+
+Face detector asset **sudah dibake** ke official Docker image saat build. Tidak perlu setup manual.
+
+```
+/app/models/face_detector/deploy.prototxt
+/app/models/face_detector/res10_300x300_ssd_iter_140000.caffemodel
+```
+
+---
+
 ## Health Check
 
-`/live` hanya menandakan proses API hidup. Endpoint ini tidak mengecek model, Supabase, atau Qdrant.
+### `/live` — Liveness
 
-`/ready` dan `/health` mengecek apakah service siap melayani request presensi nyata. Readiness hanya `200` jika semua komponen wajib siap:
+Menandakan proses API hidup. **Tidak** mengecek model, Supabase, atau Qdrant. Cocok untuk Docker liveness probe.
 
-- model ONNX sudah loaded,
-- face detector asset tersedia dan bisa diload,
-- Supabase reachable,
-- Qdrant reachable.
+```bash
+curl http://localhost:8000/live
+# 200 OK — proses hidup
+```
 
-Jika salah satu dependency belum siap, readiness mengembalikan `503`. Kondisi Qdrant atau Supabase down tidak disamarkan menjadi user belum enroll atau user tidak ditemukan.
+### `/ready` dan `/health` — Readiness
 
-Contoh readiness gagal:
+Mengecek apakah API siap melayani request nyata. Mengembalikan `200` hanya jika **semua** komponen wajib siap:
+
+- ✅ Model ONNX sudah loaded
+- ✅ Face detector asset tersedia
+- ✅ Supabase reachable
+- ✅ Qdrant reachable
+
+Jika salah satu gagal, response `503`:
 
 ```json
 {
@@ -177,184 +537,160 @@ Contoh readiness gagal:
 }
 ```
 
-## Error Semantics
+> Kondisi Qdrant atau Supabase down **tidak** disamarkan menjadi "user belum enroll" atau "user tidak ditemukan".
 
-Endpoint fitur utama membedakan error bisnis dan error dependency.
+---
 
-| Status | Arti |
+## Error Reference
+
+### HTTP Status Codes
+
+| Status | Kondisi |
 | --- | --- |
 | `200` | Request valid dan berhasil diproses |
-| `400` | Input image tidak valid, jumlah file enrollment salah, atau wajah tidak valid |
-| `401` | Bearer token tidak ada, invalid, expired, atau user tidak ditemukan |
-| `413` | Request terlalu besar berdasarkan `Content-Length` |
-| `422` | JSON request tidak sesuai schema |
+| `400` | Image tidak valid, jumlah file enrollment salah, atau wajah tidak valid/terdeteksi |
+| `401` | Bearer token tidak ada, invalid, expired, atau user tidak ditemukan di Supabase |
+| `413` | Ukuran request melebihi `MAX_REQUEST_BYTES` |
+| `422` | Body JSON tidak sesuai schema |
 | `503` | Supabase, Qdrant, model, atau dependency wajib belum siap |
 | `500` | Error internal tak terduga |
 
-Untuk presensi, `status: "not_found"` hanya dipakai jika request berhasil diproses tetapi wajah tidak cocok atau user memang belum punya embedding. Jika Qdrant error, API mengembalikan `503`.
+### Field `status` pada Response Identify
 
-## Konfigurasi
-
-Buat `.env` dari `.env.example`, lalu isi nilai yang sesuai deployment.
-
-Konfigurasi utama:
-
-| Env | Keterangan |
+| `status` | Artinya |
 | --- | --- |
-| `IMAGE_NAME` | Nama image Docker |
-| `IMAGE_TAG` | Tag image CPU yang dipakai Compose |
-| `MODEL_PATH` | Path model ONNX di dalam container |
-| `MODEL_INPUT_SIZE` | Ukuran input model ONNX |
-| `AUTO_DOWNLOAD_MODELS` | `false` by default; set `true` hanya jika server boleh fetch asset missing |
-| `SKIP_MODEL_LOAD` | `true` hanya untuk CI smoke test |
-| `GPU_DEVICE_ID` | `-1` untuk CPU, `0` untuk GPU pertama |
-| `SUPABASE_URL` | URL project Supabase |
-| `SUPABASE_KEY` | Supabase anon key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Service role key untuk lookup server-side |
-| `SUPABASE_JWT_SECRET` | Secret untuk verifikasi JWT client |
-| `QDRANT_HOST` | Host atau URL Qdrant |
-| `QDRANT_PORT` | Port REST Qdrant jika memakai host biasa |
-| `QDRANT_HTTPS` | Gunakan HTTPS untuk Qdrant |
-| `QDRANT_API_KEY` | API key Qdrant Cloud jika ada |
-| `QDRANT_COLLECTION_NAME` | Nama collection embedding |
-| `FACE_MATCH_THRESHOLD` | Threshold minimum similarity |
+| `"ok"` | Wajah cocok dengan embedding user |
+| `"not_found"` | User belum enrollment, atau similarity di bawah threshold |
 
-Guardrail request:
-
-| Env | Default | Keterangan |
-| --- | --- | --- |
-| `MAX_REQUEST_BYTES` | `62914560` | Maksimum ukuran HTTP request |
-| `MAX_IMAGE_BYTES` | `5242880` | Maksimum ukuran encoded image setelah decode/read |
-| `MAX_IMAGE_WIDTH` | `4096` | Lebar maksimum image |
-| `MAX_IMAGE_HEIGHT` | `4096` | Tinggi maksimum image |
-| `MAX_IMAGE_PIXELS` | `16777216` | Total pixel maksimum |
-
-Validasi size dan konversi image utama tetap sebaiknya dilakukan di client. Guardrail server ini hanya lapisan pengaman tambahan jika request dikirim langsung atau client bug.
-
-## Model dan Asset
-
-Model face recognition ONNX tidak dibake ke image Docker. Secara default production runtime mengecek AuraFace `glintr100.onnx` dari host-mounted `./models` dan tidak download otomatis.
-
-Default ini dipilih karena model card AuraFace menyatakan license `apache-2.0` dan menjelaskan bahwa model dilatih untuk skenario commercial setting. Untuk production, tetap lakukan evaluasi internal pada data sekolah/lembaga sendiri karena model card juga mencatat performa dapat bervariasi antar etnis dan cakupan data training tidak sempurna.
-
-Default file:
-
-```text
-./models/glintr100.onnx
-```
-
-Compose production me-mount directory tersebut ke:
-
-```text
-/app/runtime-models
-```
-
-Default `MODEL_PATH`:
-
-```text
-/app/runtime-models/glintr100.onnx
-```
-
-Default `MODEL_INPUT_SIZE`:
-
-```text
-112
-```
-
-Face detector OpenCV DNN dibake ke official Docker image saat build dan dicek dari local path:
-
-```text
-/app/models/face_detector/deploy.prototxt
-/app/models/face_detector/res10_300x300_ssd_iter_140000.caffemodel
-```
-
-Jika file face recognition ONNX belum ada, container akan gagal start/readiness dengan error missing model. Isi file sekali di host, atau build image internal yang sudah membawa asset tersebut. `AUTO_DOWNLOAD_MODELS=true` hanya dipakai jika server memang diizinkan fetch asset saat startup/readiness; semua download tetap diverifikasi checksum.
-
-Untuk model lain, jangan pakai model zoo yang hanya research/non-commercial untuk production. Hindari default InsightFace pack seperti `buffalo_l` atau `antelopev2` kecuali sudah punya commercial license. Jika mengganti model, override `MODEL_PATH`, `MODEL_INPUT_SIZE`, `MODEL_DOWNLOAD_URL`, dan `MODEL_DOWNLOAD_CHECKSUM` sesuai model yang license-nya jelas untuk production.
+---
 
 ## Development
 
-Development berjalan lewat Docker Compose override. Compose tetap memakai image resmi dari GHCR, lalu source code lokal di-mount hanya saat override development dipakai.
+Development berjalan lewat Docker Compose override yang me-mount source code lokal ke container.
 
-1. Buat `.env` dari `.env.example`.
-2. Isi konfigurasi model, Supabase, dan Qdrant external.
-3. Letakkan model ONNX di `./models`.
-4. Jalankan:
+### Setup Development
 
 ```bash
+# 1. Siapkan .env
+cp .env.example .env
+# Isi konfigurasi Supabase, Qdrant, dan model
+
+# 2. Letakkan model ONNX
+mkdir -p models
+# Taruh glintr100.onnx di ./models/
+
+# 3. Pull image resmi dan jalankan dengan override dev
 docker compose pull
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 ```
 
-Default image:
+Mode development me-mount `./src` ke dalam container sehingga perubahan kode langsung terreflect tanpa rebuild image.
 
-```text
-ghcr.io/lunaradevs/project-robin:cpu-latest
-```
-
-Untuk memakai image tertentu:
+### Pakai Image Tertentu (bukan latest)
 
 ```ini
+# Di .env
 IMAGE_NAME=ghcr.io/lunaradevs/project-robin
 IMAGE_TAG=cpu-<short-sha>
 ```
 
+---
+
 ## Deployment
 
-Server on-prem CPU-only cukup pull image resmi dan menjalankan Compose dengan `.env` production.
+### CPU (Default)
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-Compose production tidak me-mount source code. Volume yang dipakai:
+**Volume yang dipakai:**
 
 | Host | Container | Keterangan |
 | --- | --- | --- |
 | `./models` | `/app/runtime-models` | Model ONNX dari host |
 | `./logs` | `/app/logs` | Output log runtime |
 
-Gunakan `IMAGE_TAG=cpu-<short-sha>` untuk deployment pinned, atau `IMAGE_TAG=cpu-latest` untuk mengikuti image terbaru dari branch `master`.
+Gunakan `IMAGE_TAG=cpu-<short-sha>` untuk deployment pinned pada commit tertentu, atau `cpu-latest` untuk selalu mengikuti image terbaru dari branch `master`.
+
+### Pinned Deployment (Recommended untuk Production)
+
+```ini
+# .env
+IMAGE_TAG=cpu-abc1234
+```
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+---
 
 ## GPU Runtime
 
-Image CPU adalah default. Untuk runtime GPU manual:
+Image CPU adalah default. Untuk akselerasi NVIDIA GPU:
 
-1. Pastikan host punya NVIDIA driver dan runtime Docker yang mendukung GPU.
-2. Set tag image GPU:
+### Prasyarat
 
-```ini
-GPU_IMAGE_TAG=gpu-<short-sha>
-```
+- NVIDIA driver terinstall di host
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) (`nvidia-docker2` atau Docker GPU runtime)
 
-3. Jalankan Compose dengan override GPU:
+### Menjalankan GPU Runtime
 
 ```bash
+# 1. Set tag image GPU di .env
+GPU_IMAGE_TAG=gpu-<short-sha>
+
+# 2. Jalankan dengan override GPU
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
 ```
 
-Override GPU mengubah image ke tag GPU dan mengatur `GPU_DEVICE_ID=0`.
+Override GPU otomatis mengubah image ke tag GPU dan set `GPU_DEVICE_ID=0`.
+
+---
 
 ## CI/CD
 
 GitHub Actions adalah jalur build dan publish image resmi.
 
-- `CI/CD CPU`: berjalan otomatis untuk pull request dan push ke `master`; menjalankan `uv lock --check`, sync dependency CPU, lint, test dengan coverage gate, build image CPU, lalu publish `cpu-latest` dan `cpu-<short-sha>` saat push.
-- `CI/CD GPU`: berjalan manual via workflow dispatch; build dan publish image `gpu-<short-sha>`.
+| Workflow | Trigger | Fungsi |
+| --- | --- | --- |
+| **CI/CD CPU** | Push/PR ke `master` | Lint, test (coverage ≥70%), build & publish `cpu-latest` + `cpu-<sha>` |
+| **CI/CD GPU** | Manual (workflow dispatch) | Build & publish `gpu-<sha>` |
 
-Repository ini memakai `uv.lock` sebagai satu-satunya lockfile dependency. Jangan tambahkan `requirements.txt`, script setup lokal, script run lokal, atau Makefile untuk build/publish.
+**CI pipeline untuk CPU:**
+1. `uv lock --check` — verifikasi lockfile tidak drift
+2. Sync dependency CPU
+3. `ruff check` — lint
+4. `pytest` dengan coverage gate 70%
+5. Build Docker image CPU
+6. Push `cpu-latest` dan `cpu-<short-sha>` ke GHCR (hanya saat push, bukan PR)
 
-## Smoke Mode
+> Repository ini memakai `uv.lock` sebagai satu-satunya lockfile. Jangan tambahkan `requirements.txt`, Makefile, atau script build/publish lokal.
 
-`SKIP_MODEL_LOAD=true` hanya untuk CI smoke test agar aplikasi bisa start tanpa file ONNX. Jangan aktifkan ini untuk runtime nyata karena `/ready` akan gagal dan endpoint inference membutuhkan model yang sudah diload.
+---
 
-## Local Quality Check
+## Quality Check Lokal
 
-Jalankan quality gate yang sama dengan CI:
+Jalankan quality gate yang sama dengan CI sebelum push:
 
 ```bash
+# Verifikasi lockfile
 uv lock --check
+
+# Lint
 uv run ruff check src tests
+
+# Test dengan coverage
 uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=70
 ```
+
+---
+
+## Smoke Mode (CI Only)
+
+`SKIP_MODEL_LOAD=true` memungkinkan API start tanpa file ONNX. Dipakai hanya untuk CI smoke test.
+
+> ⚠️ **Jangan** aktifkan di runtime nyata. Dengan `SKIP_MODEL_LOAD=true`, endpoint `/ready` akan gagal dan semua endpoint inference tidak bisa beroperasi.
