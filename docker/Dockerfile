@@ -35,7 +35,9 @@ RUN uv python install "${PYTHON_VERSION}" && \
 
 COPY src ./src
 
-RUN mkdir -p /app/models/face_detector /app/runtime-models /app/logs && \
+RUN groupadd --gid 1001 appuser && \
+    useradd --uid 1001 --gid appuser --create-home appuser && \
+    mkdir -p /app/models/face_detector /app/runtime-models /app/logs && \
     curl -fsSL \
         https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt \
         -o /app/models/face_detector/deploy.prototxt && \
@@ -46,6 +48,10 @@ RUN mkdir -p /app/models/face_detector /app/runtime-models /app/logs && \
     echo "2a56a11a57a4a295956b0660b4a3d76bbdca2206c4961cea8efe7d95c7cb2f2d  /app/models/face_detector/res10_300x300_ssd_iter_140000.caffemodel" | sha256sum -c -
 
 EXPOSE 8000
+
+RUN chown -R appuser:appuser /app
+
+USER appuser
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/ready || exit 1
