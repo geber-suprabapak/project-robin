@@ -227,7 +227,7 @@ Row-Level Security (RLS) policies in `sql/rls_permissions.sql`:
 | Embedding extraction via API | Low | Medium | 1:1 verification only, no batch/export endpoint |
 | Decompression bomb | Low | High | Multi-layer image size validation |
 | Model poisoning (MITM download) | Low | High | SHA-256 checksum verification |
-| Container escape (root user) | Low | High | Mitigated by network isolation, but non-root user recommended |
+| Container escape (root user) | Low | High | Mitigated by network isolation and non-root user (`appuser`) |
 | Dependency vulnerability | Medium | Varies | Lockfile pinning, regular `uv sync` updates |
 | Service role key leak | Low | Critical | Never committed, env var only |
 | Brute-force enrollment | Medium | Low | Rate limiting recommended (not yet implemented) |

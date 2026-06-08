@@ -155,7 +155,7 @@ Atau set `AUTO_DOWNLOAD_MODELS=true` di `.env` agar API mengunduh otomatis saat 
 ### 1. Clone dan siapkan environment
 
 ```bash
-git clone https://github.com/lunaradevs/project-robin.git
+git clone https://github.com/fizray/project-robin.git
 cd project-robin
 
 # Buat file .env dari template
