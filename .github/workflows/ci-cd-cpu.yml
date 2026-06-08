@@ -13,7 +13,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/lunaradevs/project-robin
+  IMAGE_NAME: ghcr.io/fizray/project-robin
   PYTHON_VERSION: "3.12"
 
 jobs:
