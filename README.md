@@ -1,5 +1,9 @@
 # Project Robin
 
+Project Robin is an open-source, self-hosted face recognition API for 1:1 attendance verification in schools and institutions.
+
+It is designed for controlled, consent-based deployments where biometric data stays on-prem or inside the deploying organization's infrastructure.
+
 > **Face recognition attendance API** — 1:1 face verification untuk sistem presensi sekolah/lembaga berbasis Supabase dan Qdrant.
 
 Project Robin adalah REST API backend yang menerima foto wajah dari client, memverifikasi identitas user lewat token Supabase, membuat embedding wajah dengan model ONNX (AuraFace), lalu membandingkannya dengan embedding yang tersimpan di Qdrant. Target deployment utama adalah server on-prem atau server internal sekolah/lembaga.
@@ -686,6 +690,17 @@ uv run ruff check src tests
 # Test dengan coverage
 uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=70
 ```
+
+---
+
+## Privacy and Security
+
+Project Robin processes biometric data. Read these before deploying:
+
+- [Privacy Policy](./PRIVACY.md)
+- [Security Policy](./SECURITY.md)
+
+Project Robin is intended for 1:1 attendance verification only. It should not be used for mass surveillance, covert recognition, public-space identification, or 1:N watchlist matching.
 
 ---
 
