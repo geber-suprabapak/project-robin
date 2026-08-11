@@ -1,6 +1,6 @@
 services:
   api:
-    image: ${IMAGE_NAME:-ghcr.io/lunaradevs/project-robin}:${GPU_IMAGE_TAG:?Set GPU_IMAGE_TAG to a published gpu-<short-sha> tag}
+    image: ${IMAGE_NAME:-ghcr.io/geber-suprabapak/project-robin}:${GPU_IMAGE_TAG:?Set GPU_IMAGE_TAG to a published gpu-<short-sha> tag}
     runtime: nvidia
     environment:
       GPU_DEVICE_ID: "0"

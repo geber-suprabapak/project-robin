@@ -1,6 +1,6 @@
 services:
   api:
-    image: ${IMAGE_NAME:-ghcr.io/lunaradevs/project-robin}:${IMAGE_TAG:-cpu-latest}
+    image: ${IMAGE_NAME:-ghcr.io/geber-suprabapak/project-robin}:${IMAGE_TAG:-cpu-latest}
     pull_policy: always
     container_name: project-robin-api
     environment:

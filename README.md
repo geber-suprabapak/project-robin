@@ -464,7 +464,7 @@ Buat `.env` dari `.env.example`, lalu isi nilainya sesuai deployment.
 
 | Env | Default | Keterangan |
 | --- | --- | --- |
-| `IMAGE_NAME` | `ghcr.io/lunaradevs/project-robin` | Nama Docker image |
+| `IMAGE_NAME` | `ghcr.io/geber-suprabapak/project-robin` | Nama Docker image |
 | `IMAGE_TAG` | `cpu-latest` | Tag image CPU yang dipakai Compose |
 | `API_PORT` | `8000` | Port API di dalam container |
 | `API_WORKERS` | `1` | Jumlah worker Uvicorn (production mode) |
@@ -594,7 +594,7 @@ Mode development me-mount `./src` ke dalam container sehingga perubahan kode lan
 
 ```ini
 # Di .env
-IMAGE_NAME=ghcr.io/lunaradevs/project-robin
+IMAGE_NAME=ghcr.io/geber-suprabapak/project-robin
 IMAGE_TAG=cpu-<short-sha>
 ```
 
