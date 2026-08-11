@@ -12,6 +12,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
+    UV_PYTHON_INSTALL_DIR=/opt/uv/python \
     UV_PROJECT_ENVIRONMENT=/app/.venv \
     PATH="/app/.venv/bin:${PATH}"
 
@@ -52,6 +53,9 @@ EXPOSE 8000
 RUN chown -R appuser:appuser /app
 
 USER appuser
+
+# Fail the image build if the default runtime user cannot use the project venv.
+RUN python -c "import sys, fastapi, uvicorn; assert sys.prefix == '/app/.venv', sys.prefix"
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/ready || exit 1
