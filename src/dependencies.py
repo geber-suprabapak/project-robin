@@ -15,7 +15,13 @@ from src.config import settings
 @lru_cache(maxsize=4)
 def _get_jwks_client(url: str) -> jwt.PyJWKClient:
     """Reuse PyJWT's bounded JWKS/key caches between requests."""
-    return jwt.PyJWKClient(url, cache_keys=True, max_cached_keys=16, lifespan=300)
+    return jwt.PyJWKClient(
+        url,
+        cache_keys=True,
+        max_cached_keys=16,
+        lifespan=300,
+        headers={"User-Agent": "project-robin/1.0"},
+    )
 
 
 async def verify_jwt_bearer(authorization: Optional[str] = Header(None, alias="Authorization")) -> str:

@@ -1,4 +1,7 @@
 from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+import threading
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -93,16 +96,39 @@ def test_valid_es256_jwks_token_reaches_protected_endpoint(client, monkeypatch):
         headers={"kid": kid},
     )
 
-    monkeypatch.setattr(settings, "supabase_jwks_url", f"{issuer}/auth/v1/.well-known/jwks.json")
-    monkeypatch.setattr(settings, "supabase_jwt_issuer", issuer)
-    monkeypatch.setattr(settings, "supabase_jwt_secret", "legacy-secret-must-not-win")
-    monkeypatch.setattr(jwt.PyJWKClient, "fetch_data", lambda self: {"keys": [public_jwk]})
-    monkeypatch.setattr(enrollment.qdrant_service, "get_user_embedding_count", _zero_embeddings)
+    class JwksHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.headers.get("User-Agent") != "project-robin/1.0":
+                self.send_response(403)
+                self.end_headers()
+                return
+            body = json.dumps({"keys": [public_jwk]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
-    response = client.get(
-        "/v1/enroll/status",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+        def log_message(self, format, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), JwksHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        monkeypatch.setattr(settings, "supabase_jwks_url", f"http://127.0.0.1:{server.server_port}/jwks.json")
+        monkeypatch.setattr(settings, "supabase_jwt_issuer", issuer)
+        monkeypatch.setattr(settings, "supabase_jwt_secret", "legacy-secret-must-not-win")
+        monkeypatch.setattr(enrollment.qdrant_service, "get_user_embedding_count", _zero_embeddings)
+
+        response = client.get(
+            "/v1/enroll/status",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
     assert response.status_code == 200
     assert response.json()["user_id"] == TEST_USER_ID
