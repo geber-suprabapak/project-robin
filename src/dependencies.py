@@ -4,18 +4,27 @@ FastAPI dependencies for the Face Recognition API.
 Provides authentication and authorization utilities.
 """
 
+from functools import lru_cache
 from typing import Optional
 
+import jwt
 from fastapi import Header, HTTPException, status
 from src.config import settings
+
+
+@lru_cache(maxsize=4)
+def _get_jwks_client(url: str) -> jwt.PyJWKClient:
+    """Reuse PyJWT's bounded JWKS/key caches between requests."""
+    return jwt.PyJWKClient(url, cache_keys=True, max_cached_keys=16, lifespan=300)
 
 
 async def verify_jwt_bearer(authorization: Optional[str] = Header(None, alias="Authorization")) -> str:
     """
     Dependency to verify Supabase JWT Bearer token.
     
-    Extracts the Bearer token from Authorization header, verifies signature
-    using SUPABASE_JWT_SECRET, and returns the user_id from 'sub' claim.
+    Extracts the Bearer token from Authorization header, verifies its signature
+    using Supabase JWKS (preferred) or the legacy HS256 secret, and returns the
+    user_id from the ``sub`` claim.
     
     Args:
         authorization: Authorization header value (Bearer <token>)
@@ -25,7 +34,7 @@ async def verify_jwt_bearer(authorization: Optional[str] = Header(None, alias="A
         
     Raises:
         HTTPException: 401 if token is missing, invalid, or expired
-        HTTPException: 500 if JWT secret is not configured
+        HTTPException: 500 if JWT authentication is not configured
         
     Example:
         ```python
@@ -34,10 +43,8 @@ async def verify_jwt_bearer(authorization: Optional[str] = Header(None, alias="A
             return {"user_id": user_id}
         ```
     """
-    import jwt
-    
-    # Check JWT secret is configured
-    if not settings.supabase_jwt_secret:
+    use_jwks = bool(settings.supabase_jwks_url and settings.supabase_jwt_issuer)
+    if not use_jwks and not settings.supabase_jwt_secret:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="JWT authentication not configured"
@@ -59,14 +66,24 @@ async def verify_jwt_bearer(authorization: Optional[str] = Header(None, alias="A
     token = authorization[7:]  # Remove "Bearer " prefix
     
     try:
-        # Decode and verify JWT
-        payload = jwt.decode(
-            token,
-            settings.supabase_jwt_secret,
-            algorithms=["HS256"],
-            audience="authenticated",
-            options={"require": ["sub", "exp"]}
-        )
+        if use_jwks:
+            signing_key = _get_jwks_client(settings.supabase_jwks_url).get_signing_key_from_jwt(token)
+            payload = jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["ES256"],
+                audience=settings.supabase_jwt_audience,
+                issuer=settings.supabase_jwt_issuer,
+                options={"require": ["sub", "exp", "iss", "aud"]},
+            )
+        else:
+            payload = jwt.decode(
+                token,
+                settings.supabase_jwt_secret,
+                algorithms=["HS256"],
+                audience=settings.supabase_jwt_audience,
+                options={"require": ["sub", "exp", "aud"]},
+            )
         
         user_id = payload.get("sub")
         if not user_id:
@@ -82,7 +99,7 @@ async def verify_jwt_bearer(authorization: Optional[str] = Header(None, alias="A
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired"
         )
-    except jwt.InvalidTokenError as e:
+    except jwt.PyJWTError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid token: {str(e)}"

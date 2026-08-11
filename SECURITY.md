@@ -50,7 +50,7 @@ Validation (`src/dependencies.py`):
 | Required claims | `sub` (user ID), `exp` (expiry) |
 | Audience | `"authenticated"` |
 | Expiry | `ExpiredSignatureError` returns distinct 401 |
-| Secret readiness | Returns 500 if `SUPABASE_JWT_SECRET` is empty |
+| Auth readiness | Returns 500 unless JWKS plus issuer or the legacy HS256 secret is configured |
 
 ### Authorization Model
 
@@ -64,7 +64,7 @@ Every operation is scoped to the authenticated user's identity. The API never ac
 
 | Credential | Purpose | Risk if leaked |
 | --- | --- | --- |
-| `SUPABASE_JWT_SECRET` | JWT signature verification | Attacker can forge tokens |
+| `SUPABASE_JWT_SECRET` | Legacy HS256 JWT verification only | Attacker can forge tokens; omit it when JWKS is active |
 | `SUPABASE_KEY` (anon) | Public client operations | Low when RLS is correctly configured. Impact increases significantly if RLS policies are missing, overly broad, or disabled. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side DB lookups | Full Supabase admin access |
 | `QDRANT_API_KEY` | Vector DB authentication | Access to stored embeddings |
@@ -241,7 +241,7 @@ Row-Level Security (RLS) policies in `sql/rls_permissions.sql`:
 1. **Run container as non-root user** — Add `USER appuser` to Dockerfile after package installation.
 2. **Add per-user and per-IP rate limiting** — Implement rate limiting on `/v1/enroll` and `/v1/identify` endpoints to prevent brute-force, resource exhaustion on CPU/GPU, and abuse of biometric processing.
 3. **Use secrets management** — Replace plain environment variables with Docker secrets, HashiCorp Vault, or cloud secrets manager in production.
-4. **Rotate SUPABASE_JWT_SECRET periodically** — Since the project uses HS256 (symmetric), the secret must be treated as a shared credential.
+4. **Prefer Supabase asymmetric signing keys** — Configure `SUPABASE_JWKS_URL` and exact `SUPABASE_JWT_ISSUER`; retain and rotate `SUPABASE_JWT_SECRET` only while legacy HS256 tokens remain in use.
 
 ### Medium Priority
 

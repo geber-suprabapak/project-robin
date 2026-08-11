@@ -171,7 +171,11 @@ Minimal yang wajib diisi:
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-SUPABASE_JWT_SECRET=your-jwt-secret  # Dashboard → Settings → API → JWT Secret
+SUPABASE_JWKS_URL=https://your-project.supabase.co/auth/v1/.well-known/jwks.json
+SUPABASE_JWT_ISSUER=https://your-project.supabase.co
+SUPABASE_JWT_AUDIENCE=authenticated
+# Legacy HS256 fallback only:
+SUPABASE_JWT_SECRET=
 
 # Qdrant (external)
 QDRANT_HOST=https://your-qdrant-host.example.com
@@ -409,7 +413,10 @@ Buat `.env` dari `.env.example`, lalu isi nilainya sesuai deployment.
 | `SUPABASE_URL` | URL project Supabase (`https://xxx.supabase.co`) |
 | `SUPABASE_KEY` | Supabase anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key untuk server-side lookup |
-| `SUPABASE_JWT_SECRET` | Secret verifikasi JWT (Dashboard → Settings → API → JWT Secret) |
+| `SUPABASE_JWKS_URL` | Endpoint JWKS Supabase untuk verifikasi token ES256 |
+| `SUPABASE_JWT_ISSUER` | Nilai `iss` token yang harus cocok persis |
+| `SUPABASE_JWT_AUDIENCE` | Audience token (default: `authenticated`) |
+| `SUPABASE_JWT_SECRET` | Fallback legacy untuk token HS256; kosongkan saat JWKS aktif |
 | `QDRANT_HOST` | Host atau URL Qdrant external |
 | `QDRANT_COLLECTION_NAME` | Nama collection embedding (default: `face_embeddings`) |
 

@@ -115,7 +115,19 @@ class Settings(BaseSettings):
     # Security - JWT
     supabase_jwt_secret: str = Field(
         default="",
-        description="Supabase JWT secret for verifying session tokens"
+        description="Legacy Supabase HS256 JWT secret for verifying session tokens"
+    )
+    supabase_jwks_url: str = Field(
+        default="",
+        description="Supabase JWKS endpoint for verifying asymmetric session tokens"
+    )
+    supabase_jwt_issuer: str = Field(
+        default="",
+        description="Exact issuer expected in Supabase session tokens"
+    )
+    supabase_jwt_audience: str = Field(
+        default="authenticated",
+        description="Audience expected in Supabase session tokens"
     )
 
     # Face Recognition Configuration
