@@ -89,26 +89,11 @@ class Settings(BaseSettings):
     max_image_height: int = Field(default=4096, description="Maximum accepted image height")
     max_image_pixels: int = Field(default=16_777_216, description="Maximum accepted image pixel count")
 
-    # Security - JWT Authentication
-    jwt_secret: str = Field(
-        default="",
-        validation_alias=AliasChoices("jwt_secret", "auth_jwt_secret"),
-        description="JWT secret for verifying symmetric OIDC access tokens",
-    )
-    jwt_jwks_url: str = Field(
-        default="",
-        validation_alias=AliasChoices("jwt_jwks_url", "auth_jwks_url"),
-        description="JWKS endpoint for verifying OIDC access tokens",
-    )
-    jwt_issuer: str = Field(
-        default="",
-        validation_alias=AliasChoices("jwt_issuer", "auth_jwt_issuer"),
-        description="Expected OIDC issuer in access tokens",
-    )
-    jwt_audience: str = Field(
-        default="astra-api",
-        validation_alias=AliasChoices("jwt_audience", "auth_jwt_audience"),
-        description="Expected OIDC audience in access tokens",
+    # Security - Astra service credential
+    robin_service_token: str = Field(
+        default="dev-robin-service-token",
+        validation_alias=AliasChoices("robin_service_token", "auth_service_token"),
+        description="Dedicated Astra-to-Robin service credential",
     )
 
 

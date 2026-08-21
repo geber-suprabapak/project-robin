@@ -97,16 +97,18 @@ async def enforce_request_size(request: Request, call_next):
                 },
             )
 
-    return await call_next(request)
+    response = await call_next(request)
+    response.headers["X-Robin-Contract-Version"] = "v1"
+    return response
 
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origin_list,
-    allow_credentials=settings.cors_allow_credentials,
+    allow_headers=["Authorization", "Content-Type", "X-Astra-User-Id", "X-Request-ID"],
+    expose_headers=["X-Robin-Contract-Version"],
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Register routers
