@@ -23,9 +23,6 @@ def _patch_enrollment_pipeline(monkeypatch):
     monkeypatch.setattr(enrollment.inference_engine, "predict", lambda _: embedding)
 
 
-async def _user_profile(user_id: str):
-    return {"user_id": user_id}
-
 
 async def _qdrant_down(*args, **kwargs):
     raise QdrantUnavailableError("Qdrant is down")
@@ -43,7 +40,6 @@ def test_enroll_requires_exactly_ten_files(client, auth_headers):
 
 
 def test_enroll_rejects_corrupt_image_even_without_mime_validation(client, monkeypatch, auth_headers):
-    monkeypatch.setattr(enrollment.supabase_service, "get_user_profile_by_id", _user_profile)
 
     response = client.post(
         "/v1/enroll",
@@ -57,7 +53,6 @@ def test_enroll_rejects_corrupt_image_even_without_mime_validation(client, monke
 
 def test_enroll_returns_503_when_qdrant_write_fails(client, monkeypatch, auth_headers):
     _patch_enrollment_pipeline(monkeypatch)
-    monkeypatch.setattr(enrollment.supabase_service, "get_user_profile_by_id", _user_profile)
     monkeypatch.setattr(enrollment.qdrant_service, "enroll_user_embeddings", _qdrant_down)
 
     response = client.post(

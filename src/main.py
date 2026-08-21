@@ -11,7 +11,6 @@ from fastapi.responses import JSONResponse
 
 from src.config import settings
 from src.core.inference_engine import inference_engine
-from src.services.supabase_client import supabase_service
 from src.api.routes import health, identification, enrollment
 from src.api.exceptions import http_exception_handler, general_exception_handler
 
@@ -35,11 +34,6 @@ async def lifespan(app: FastAPI):
 
             logger.info("🔥 Warming up inference engine...")
             inference_engine.warmup()
-        
-        if supabase_service.is_connected():
-            logger.info("✅ Supabase client connected")
-        else:
-            logger.warning("⚠️ Supabase client not configured (simulation mode)")
         
         logger.info("=" * 60)
         logger.info(f"✅ Server ready on {settings.api_host}:{settings.api_port}")

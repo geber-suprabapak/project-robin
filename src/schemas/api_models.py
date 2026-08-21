@@ -119,7 +119,6 @@ class HealthResponse(BaseModel):
     model_loaded: bool = Field(..., description="Whether ONNX model is loaded")
     face_detector_ready: bool = Field(..., description="Whether the face detector is available")
     gpu_available: bool = Field(..., description="Whether GPU is available")
-    supabase_connected: bool = Field(..., description="Whether Supabase is connected")
     qdrant_connected: bool = Field(..., description="Whether Qdrant is connected")
 
     model_config = ConfigDict(
@@ -129,7 +128,6 @@ class HealthResponse(BaseModel):
                 "model_loaded": True,
                 "face_detector_ready": True,
                 "gpu_available": True,
-                "supabase_connected": True,
                 "qdrant_connected": True
             }
         }

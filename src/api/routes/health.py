@@ -8,34 +8,23 @@ from fastapi.responses import JSONResponse
 from src.core.inference_engine import inference_engine
 from src.services.face_detector import is_face_detector_ready
 from src.services.qdrant_client import qdrant_service
-from src.services.supabase_client import supabase_service
 from src.schemas.api_models import HealthResponse
 
 router = APIRouter(tags=["System"])
 
 
 async def _readiness_payload() -> HealthResponse:
-    """Build readiness status from all runtime dependencies."""
+    """Build readiness status from Robin's technical dependencies."""
     model_loaded = inference_engine.is_loaded()
     face_detector_ready = is_face_detector_ready()
-    supabase_connected = await supabase_service.is_ready()
     qdrant_connected = await qdrant_service.is_connected()
-
-    is_ready = all(
-        (
-            model_loaded,
-            face_detector_ready,
-            supabase_connected,
-            qdrant_connected,
-        )
-    )
+    is_ready = all((model_loaded, face_detector_ready, qdrant_connected))
 
     return HealthResponse(
         status="healthy" if is_ready else "unhealthy",
         model_loaded=model_loaded,
         face_detector_ready=face_detector_ready,
         gpu_available=inference_engine.is_gpu_enabled(),
-        supabase_connected=supabase_connected,
         qdrant_connected=qdrant_connected,
     )
 
@@ -58,7 +47,7 @@ async def liveness_check() -> Dict[str, str]:
 
 @router.get("/ready", response_model=HealthResponse, summary="Readiness check endpoint")
 async def readiness_check() -> HealthResponse | JSONResponse:
-    """Check whether API dependencies are ready to serve traffic."""
+    """Check whether Robin's technical dependencies are ready."""
     return await _readiness_response()
 
 
@@ -70,7 +59,7 @@ async def health_check() -> HealthResponse | JSONResponse:
 
 @router.get("/", summary="Root endpoint")
 async def root() -> Dict[str, str]:
-    """Root endpoint with API information."""
+    """Return API information without exposing domain dependencies."""
     return {
         "service": "Face Recognition API",
         "version": "1.0.0",

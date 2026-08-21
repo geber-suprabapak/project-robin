@@ -30,7 +30,7 @@ def test_malformed_bearer_token_returns_401(client):
 
 
 def test_jwt_secret_missing_returns_500(client, monkeypatch):
-    monkeypatch.setattr(settings, "supabase_jwt_secret", "")
+    monkeypatch.setattr(settings, "jwt_secret", "")
 
     response = client.get("/v1/enroll/status", headers={"Authorization": "Bearer token"})
 
@@ -116,9 +116,9 @@ def test_valid_es256_jwks_token_reaches_protected_endpoint(client, monkeypatch):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        monkeypatch.setattr(settings, "supabase_jwks_url", f"http://127.0.0.1:{server.server_port}/jwks.json")
-        monkeypatch.setattr(settings, "supabase_jwt_issuer", issuer)
-        monkeypatch.setattr(settings, "supabase_jwt_secret", "legacy-secret-must-not-win")
+        monkeypatch.setattr(settings, "jwt_jwks_url", f"http://127.0.0.1:{server.server_port}/jwks.json")
+        monkeypatch.setattr(settings, "jwt_issuer", issuer)
+        monkeypatch.setattr(settings, "jwt_secret", "legacy-secret-must-not-win")
         monkeypatch.setattr(enrollment.qdrant_service, "get_user_embedding_count", _zero_embeddings)
 
         response = client.get(

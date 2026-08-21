@@ -26,18 +26,11 @@ def _get_jwks_client(url: str) -> jwt.PyJWKClient:
 
 async def verify_jwt_bearer(authorization: Optional[str] = Header(None, alias="Authorization")) -> str:
     """
-    Dependency to verify Supabase JWT Bearer token.
-    
-    Extracts the Bearer token from Authorization header, verifies its signature
-    using Supabase JWKS (preferred) or the legacy HS256 secret, and returns the
-    user_id from the ``sub`` claim.
-    
-    Args:
-        authorization: Authorization header value (Bearer <token>)
-        
-    Returns:
-        The user_id (sub claim) from the verified JWT
-        
+    Dependency to verify an OIDC/Logto JWT Bearer token.
+ 
+    The token subject is used only as Robin's technical artifact key. Robin does
+    not query Astra or any business database.
+ 
     Raises:
         HTTPException: 401 if token is missing, invalid, or expired
         HTTPException: 500 if JWT authentication is not configured
@@ -49,8 +42,8 @@ async def verify_jwt_bearer(authorization: Optional[str] = Header(None, alias="A
             return {"user_id": user_id}
         ```
     """
-    use_jwks = bool(settings.supabase_jwks_url and settings.supabase_jwt_issuer)
-    if not use_jwks and not settings.supabase_jwt_secret:
+    use_jwks = bool(settings.jwt_jwks_url and settings.jwt_issuer)
+    if not use_jwks and not settings.jwt_secret:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="JWT authentication not configured"
@@ -73,21 +66,21 @@ async def verify_jwt_bearer(authorization: Optional[str] = Header(None, alias="A
     
     try:
         if use_jwks:
-            signing_key = _get_jwks_client(settings.supabase_jwks_url).get_signing_key_from_jwt(token)
+            signing_key = _get_jwks_client(settings.jwt_jwks_url).get_signing_key_from_jwt(token)
             payload = jwt.decode(
                 token,
                 signing_key.key,
-                algorithms=["ES256"],
-                audience=settings.supabase_jwt_audience,
-                issuer=settings.supabase_jwt_issuer,
+                algorithms=["RS256", "ES256"],
+                audience=settings.jwt_audience,
+                issuer=settings.jwt_issuer,
                 options={"require": ["sub", "exp", "iss", "aud"]},
             )
         else:
             payload = jwt.decode(
                 token,
-                settings.supabase_jwt_secret,
+                settings.jwt_secret,
                 algorithms=["HS256"],
-                audience=settings.supabase_jwt_audience,
+                audience=settings.jwt_audience,
                 options={"require": ["sub", "exp", "aud"]},
             )
         

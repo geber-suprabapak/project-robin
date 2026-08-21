@@ -8,7 +8,6 @@ from src.config import settings
 from src.core.inference_engine import inference_engine
 from src.services.image_decoder import ImageDecodeError, decode_image_bytes, preprocess_face_image
 from src.services.qdrant_client import QdrantServiceError, qdrant_service
-from src.services.supabase_client import SupabaseServiceError, supabase_service
 from src.services.face_detector import validate_single_face, crop_face_from_image
 from src.dependencies import verify_jwt_bearer
 from src.schemas.api_models import EnrollResponse, EnrollStatusResponse, ErrorResponse
@@ -55,7 +54,7 @@ async def check_enrollment_status(
     """
     Check if current user has face embeddings enrolled.
     
-    Requires a valid Supabase JWT Bearer token in Authorization header.
+    Requires a valid OIDC Bearer token in Authorization header.
     """
     try:
         count = await qdrant_service.get_user_embedding_count(user_id)
@@ -98,8 +97,6 @@ async def enroll_user(
     """
     Self-serve face enrollment with exactly 10 images.
     
-    Requires a valid Supabase JWT Bearer token in Authorization header.
-    The user_id is extracted from the token's 'sub' claim.
     """
     try:
         # Step 1: Validate Image Count
@@ -108,15 +105,6 @@ async def enroll_user(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Exactly {REQUIRED_IMAGES} images required. Received: {file_count}"
-            )
-        
-        # Step 2: Verify user exists in database
-        user_profile = await supabase_service.get_user_profile_by_id(user_id)
-        if not user_profile:
-            logger.warning(f"🚫 JWT valid but user not found in database: {user_id}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found in database"
             )
         
         logger.info(f"📸 Self-serve enrollment started - user_id: {user_id}, Images: {file_count}")
@@ -170,7 +158,7 @@ async def enroll_user(
         )
     except HTTPException:
         raise
-    except (QdrantServiceError, SupabaseServiceError) as e:
+    except QdrantServiceError as e:
         logger.exception(f"Dependency error during enrollment: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

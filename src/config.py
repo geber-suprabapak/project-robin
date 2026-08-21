@@ -3,7 +3,7 @@ Configuration module using Pydantic Settings.
 Loads environment variables from .env file.
 """
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -89,46 +89,28 @@ class Settings(BaseSettings):
     max_image_height: int = Field(default=4096, description="Maximum accepted image height")
     max_image_pixels: int = Field(default=16_777_216, description="Maximum accepted image pixel count")
 
-    # Supabase Configuration
-    supabase_url: str = Field(
+    # Security - JWT Authentication
+    jwt_secret: str = Field(
         default="",
-        description="Supabase project URL"
+        validation_alias=AliasChoices("jwt_secret", "auth_jwt_secret"),
+        description="JWT secret for verifying symmetric OIDC access tokens",
     )
-    supabase_key: str = Field(
+    jwt_jwks_url: str = Field(
         default="",
-        description="Supabase anon/public key"
+        validation_alias=AliasChoices("jwt_jwks_url", "auth_jwks_url"),
+        description="JWKS endpoint for verifying OIDC access tokens",
     )
-    supabase_service_role_key: str = Field(
+    jwt_issuer: str = Field(
         default="",
-        description="Supabase service role key (admin access)"
+        validation_alias=AliasChoices("jwt_issuer", "auth_jwt_issuer"),
+        description="Expected OIDC issuer in access tokens",
     )
-    supabase_timeout_seconds: float = Field(
-        default=3.0,
-        description="Timeout for Supabase operations"
-    )
-    supabase_max_retries: int = Field(
-        default=2,
-        ge=0,
-        description="Retry count for transient Supabase operation failures"
+    jwt_audience: str = Field(
+        default="authenticated",
+        validation_alias=AliasChoices("jwt_audience", "auth_jwt_audience"),
+        description="Expected OIDC audience in access tokens",
     )
 
-    # Security - JWT
-    supabase_jwt_secret: str = Field(
-        default="",
-        description="Legacy Supabase HS256 JWT secret for verifying session tokens"
-    )
-    supabase_jwks_url: str = Field(
-        default="",
-        description="Supabase JWKS endpoint for verifying asymmetric session tokens"
-    )
-    supabase_jwt_issuer: str = Field(
-        default="",
-        description="Exact issuer expected in Supabase session tokens"
-    )
-    supabase_jwt_audience: str = Field(
-        default="authenticated",
-        description="Audience expected in Supabase session tokens"
-    )
 
     # Face Recognition Configuration
     face_match_threshold: float = Field(

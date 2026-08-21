@@ -8,7 +8,6 @@ from src.config import settings
 from src.core.inference_engine import inference_engine
 from src.services.image_decoder import decode_base64_image, preprocess_face_image, ImageDecodeError
 from src.services.qdrant_client import QdrantServiceError, qdrant_service
-from src.services.supabase_client import SupabaseServiceError, supabase_service
 from src.services.face_detector import validate_single_face, crop_face_from_image, FaceDetectionError
 from src.schemas.api_models import IdentifyRequest, IdentifyResponse, ErrorResponse
 from src.dependencies import verify_jwt_bearer
@@ -37,21 +36,12 @@ async def identify_face(
     """
     Identify a person from a face image using GPU-accelerated inference.
     
-    Requires a valid Supabase JWT Bearer token in Authorization header.
-    The user_id from the token's 'sub' claim is verified against the database.
+    Requires a valid OIDC Bearer token. Robin uses only the token subject to select
+    technical face artifacts and never reads Astra domain data.
     """
     start_time = time.perf_counter()
     
     try:
-        # Step 1: Verify user exists in database
-        user_profile = await supabase_service.get_user_profile_by_id(user_id)
-        if not user_profile:
-            logger.warning(f"🚫 JWT valid but user not found in database: {user_id}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found in database"
-            )
-        logger.info(f"✅ User verified: {user_id}")
         
         # Step 2: Decode Image
         try:
@@ -94,22 +84,14 @@ async def identify_face(
             )
         
         if verify_result["verified"]:
-            # Face verified - get student info
-            student = await supabase_service.get_student_by_user_id(user_id)
-            if student:
-                logger.info(f"✅ Verified: NIS={student['nis']}, Conf={verify_result['confidence']:.3f}")
-                return IdentifyResponse(
-                    status="ok", student_id=str(student["nis"]), student_name=student["nama"],
-                    confidence=verify_result["confidence"], process_time_ms=process_time_ms, 
-                    message="Face verified successfully"
-                )
-            else:
-                logger.warning(f"⚠️ Face verified but no student profile for user {user_id}")
-                return IdentifyResponse(
-                    status="ok", student_id=None, student_name=None,
-                    confidence=verify_result["confidence"], process_time_ms=process_time_ms,
-                    message="Face verified but student profile not found"
-                )
+            return IdentifyResponse(
+                status="ok",
+                student_id=None,
+                student_name=None,
+                confidence=verify_result["confidence"],
+                process_time_ms=process_time_ms,
+                message="Face verified successfully",
+            )
         
         logger.warning(f"❌ Face not verified for user {user_id}, confidence: {verify_result['confidence']:.3f}")
         return IdentifyResponse(
@@ -119,11 +101,11 @@ async def identify_face(
         )
     except HTTPException:
         raise
-    except (QdrantServiceError, SupabaseServiceError) as e:
-        logger.exception(f"Dependency error: {e}")
+    except QdrantServiceError as e:
+        logger.exception(f"Dependency error during identification: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Required dependency is unavailable"
+            detail="Required dependency is unavailable",
         )
     except Exception as e:
         logger.exception(f"Unexpected error: {e}")
