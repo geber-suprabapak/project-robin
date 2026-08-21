@@ -1,0 +1,27 @@
+{
+  "contract": "skanida-astra",
+  "version": "v1",
+  "published_at": "2026-08-21",
+  "request": {
+    "required_headers": ["Authorization", "X-Request-ID", "X-Astra-Contract-Version"],
+    "contract_header": {"name": "X-Astra-Contract-Version", "value": "v1"},
+    "authorization": "Astra-to-Robin service credential with user context"
+  },
+  "response": {
+    "content_type": "application/json",
+    "contract_header": {"name": "X-Robin-Contract-Version", "value": "v1"}
+  },
+  "robin_routes": [
+    "GET /ready",
+    "POST /v1/identify",
+    "GET /v1/enroll/status",
+    "POST /v1/enroll",
+    "DELETE /v1/enroll"
+  ],
+  "ownership": {
+    "domain_state": "Astra",
+    "technical_face_artifacts": "Robin",
+    "caller": "Astra only",
+    "user_context": "explicit Astra-supplied user identifier"
+  }
+}
