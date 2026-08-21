@@ -167,3 +167,31 @@ async def enroll_user(
     except Exception as e:
         logger.exception(f"Unexpected error: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Internal error: {e}")
+
+@router.delete(
+    "/enroll",
+    status_code=status.HTTP_200_OK,
+    summary="Delete current user's face enrollment",
+    responses={
+        200: {"description": "Enrollment deleted"},
+        401: {"model": ErrorResponse, "description": "Invalid or expired JWT token"},
+        503: {"model": ErrorResponse, "description": "Dependency unavailable"},
+    },
+)
+async def delete_enrollment(
+    user_id: str = Depends(verify_jwt_bearer),
+) -> dict[str, object]:
+    """Idempotently delete only the technical enrollment artifacts for the token subject."""
+    try:
+        deleted = await qdrant_service.delete_user_embeddings(user_id)
+        return {
+            "status": "success",
+            "deleted": deleted,
+            "message": "Face enrollment deleted successfully",
+        }
+    except QdrantServiceError as e:
+        logger.exception(f"Dependency error deleting enrollment: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Required dependency is unavailable",
+        )

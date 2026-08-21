@@ -52,7 +52,7 @@ def test_invalid_jwt_returns_401(client):
     token = jwt.encode(
         {
             "sub": TEST_USER_ID,
-            "aud": "authenticated",
+            "aud": "astra-api",
             "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
         },
         "wrong-secret",
@@ -87,7 +87,7 @@ def test_valid_es256_jwks_token_reaches_protected_endpoint(client, monkeypatch):
     token = jwt.encode(
         {
             "sub": TEST_USER_ID,
-            "aud": "authenticated",
+            "aud": "astra-api",
             "iss": issuer,
             "exp": datetime.now(timezone.utc) + timedelta(minutes=15),
         },

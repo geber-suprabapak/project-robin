@@ -16,7 +16,7 @@ def make_token(
     return jwt.encode(
         {
             "sub": user_id,
-            "aud": "authenticated",
+            "aud": "astra-api",
             "exp": expires_at,
         },
         secret,

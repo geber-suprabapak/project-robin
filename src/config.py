@@ -106,7 +106,7 @@ class Settings(BaseSettings):
         description="Expected OIDC issuer in access tokens",
     )
     jwt_audience: str = Field(
-        default="authenticated",
+        default="astra-api",
         validation_alias=AliasChoices("jwt_audience", "auth_jwt_audience"),
         description="Expected OIDC audience in access tokens",
     )
