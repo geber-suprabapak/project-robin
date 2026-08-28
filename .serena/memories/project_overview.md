@@ -1,12 +1,12 @@
 # Project Robin (FaceVector-Core)
 
 ## Purpose
-High-performance REST API for face recognition processing using ArcFace ONNX model with GPU acceleration (NVIDIA CUDA) and Supabase database integration.
+High-performance internal REST API for face recognition processing using ArcFace ONNX model with GPU acceleration (NVIDIA CUDA), called by Astra.
 
 ## Tech Stack
 - **Framework**: FastAPI (Python 3.10+)
 - **ML Runtime**: ONNX Runtime GPU (CUDA support)
-- **Database**: Supabase (PostgreSQL with pgvector)
+- **Vector store**: Qdrant (user-scoped face embeddings)
 - **Package Manager**: uv (preferred)
 - **Image Processing**: OpenCV, Pillow, NumPy
 
@@ -17,7 +17,7 @@ project-robin/
 ├── config.py            # Pydantic Settings
 ├── dependencies.py      # FastAPI dependencies (admin auth)
 ├── core/                # Inference engine (singleton)
-├── services/            # Business logic (image, face detection, supabase)
+├── services/            # Business logic (image, face detection, Qdrant)
 ├── schemas/             # Pydantic models
 └── sql/                 # Database schemas
 ```
@@ -29,10 +29,9 @@ project-robin/
 - Role-based API key protection
 
 ## Security Architecture
-- **Role-Based API Keys**:
-  - `X-Admin-Key`: Required for `/v1/enroll` (admin-only, write access)
-  - `X-Client-Key`: Required for `/v1/identify` (kiosk/frontend devices)
-  - Admin key can access all client-protected endpoints (fallback)
+- **Astra service boundary**:
+  - `Authorization: Bearer <ROBIN_SERVICE_TOKEN>` authenticates Astra
+  - `X-Astra-User-Id` supplies the already-authenticated user context
+  - Robin has no direct identity-provider or domain-database dependency
 - **Dependencies** (`src/dependencies.py`):
-  - `verify_admin_key`: Validates admin key for sensitive operations
-  - `verify_client_key`: Validates client key OR admin key (admin override)
+    - `verify_jwt_bearer`: Validates the Astra service credential and user context

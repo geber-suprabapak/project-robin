@@ -26,36 +26,35 @@
 
 ## Security Posture
 
-Project Robin is a **face recognition attendance API** deployed on-prem or on internal school/agency networks. It handles **biometric data (face embeddings)** and processes **personally identifiable information (PII)** via Supabase. Below is the threat model and security controls currently in place.
+Project Robin is a **face recognition attendance API** deployed on-prem or on internal school/agency networks. It handles **biometric data (face embeddings)** and receives a scoped user identifier from Astra; it does not access the domain database or identity provider directly. Below is the threat model and security controls currently in place.
 
 ### Design Principles
 
 - **Biometric data minimization**: Only 512-dimensional embeddings (not raw images) are stored long-term in Qdrant. Uploaded images are processed in-memory and discarded after inference. No temporary image files are written to disk by Project Robin.
 - **1:1 verification (not 1:N)**: The `/v1/identify` endpoint never searches the entire face database. It retrieves only embeddings belonging to the authenticated user and computes cosine similarity server-side inside the API. Stored embeddings are never returned to the client. This prevents user enumeration via the vector database.
-- **Defense in depth**: Multi-layer input validation, checksum-verified model downloads, and RLS at the database level.
+- **Defense in depth**: Multi-layer input validation, checksum-verified model downloads, private network placement, and Qdrant API-key protection.
 
 ---
 
 ## Authentication & Authorization
 
-### JWT Authentication
+### Astra Service Authentication
 
-All protected endpoints (`/v1/enroll`, `/v1/enroll/status`, `/v1/identify`) require a **Bearer JWT** issued by Supabase.
+All protected endpoints (`/v1/enroll`, `/v1/enroll/status`, `/v1/identify`) require Astra's **Bearer service credential** and the `X-Astra-User-Id` header.
 
 Validation (`src/dependencies.py`):
 
 | Check | Implementation |
 | --- | --- |
-| Algorithm | Only `HS256` accepted |
-| Required claims | `sub` (user ID), `exp` (expiry) |
-| Audience | `"authenticated"` |
-| Expiry | `ExpiredSignatureError` returns distinct 401 |
-| Auth readiness | Returns 500 unless JWKS plus issuer or the legacy HS256 secret is configured |
+| Credential | `ROBIN_SERVICE_TOKEN` shared only between Astra and Robin |
+| User context | `X-Astra-User-Id`, supplied after Astra authenticates the caller |
+| Direct client access | Not supported; Robin is an internal service |
+| Failure mode | Missing or mismatched credential/context returns 401 |
 
 ### Authorization Model
 
 ```
-JWT (sub) → Supabase user_profiles → Qdrant scope (user_id)
+Astra-authenticated user context → Qdrant scope (`user_id`)
 ```
 
 Every operation is scoped to the authenticated user's identity. The API never accesses data outside the caller's user boundary.
@@ -64,9 +63,7 @@ Every operation is scoped to the authenticated user's identity. The API never ac
 
 | Credential | Purpose | Risk if leaked |
 | --- | --- | --- |
-| `SUPABASE_JWT_SECRET` | Legacy HS256 JWT verification only | Attacker can forge tokens; omit it when JWKS is active |
-| `SUPABASE_KEY` (anon) | Public client operations | Low when RLS is correctly configured. Impact increases significantly if RLS policies are missing, overly broad, or disabled. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-side DB lookups | Full Supabase admin access |
+| `ROBIN_SERVICE_TOKEN` | Authenticate Astra-to-Robin calls | Unauthorized callers can invoke protected face operations |
 | `QDRANT_API_KEY` | Vector DB authentication | Access to stored embeddings |
 
 ---
@@ -148,31 +145,12 @@ Face Detector
 | --- | --- |
 | Secrets | Passed via environment variables (not Docker secrets) |
 | Restart policy | `unless-stopped` |
-| Network exposure | Port 8000 |
+| Network exposure | Internal-only; published by the `infra` stack only behind Astra |
 | Read-only volumes | Model directory mounted as `:ro` in dev |
 
 ---
 
 ## Database Security
-
-### Supabase (PostgreSQL)
-
-Row-Level Security (RLS) policies in `sql/rls_permissions.sql`:
-
-**`user_profiles` table:**
-
-| Role | Operation | Scope |
-| --- | --- | --- |
-| `service_role` | ALL | Full access (server-side) |
-| `authenticated` | SELECT | Own row only (`auth.uid() = user_id`) |
-| `authenticated` | UPDATE | Own row only (`auth.uid() = user_id`) |
-
-**`biodata_siswa` table:**
-
-| Role | Operation | Scope |
-| --- | --- | --- |
-| `service_role` | ALL | Full access (server-side) |
-| `authenticated` | SELECT | All rows (public biodata) |
 
 ### Qdrant (Vector Database)
 
@@ -213,9 +191,9 @@ Row-Level Security (RLS) policies in `sql/rls_permissions.sql`:
 | Asset | Location | Sensitivity |
 | --- | --- | --- |
 | Face embeddings (512-d vectors) | Qdrant | **High** — biometric data |
-| User profiles (PII) | Supabase | **High** |
+| User profiles (PII) | Astra/domain store | **High** |
 | Face photos (uploaded) | Memory only | **High** — discarded post-inference |
-| JWT tokens | Client-side | **Medium** |
+| Service credentials | Astra and Robin host-side env files | **Critical** |
 | API keys & secrets | Environment variables | **Critical** |
 | ONNX model weights | Filesystem | **Low** — publicly available |
 
@@ -223,7 +201,7 @@ Row-Level Security (RLS) policies in `sql/rls_permissions.sql`:
 
 | Threat | Likelihood | Impact | Mitigation |
 | --- | --- | --- | --- |
-| JWT token forgery | Low | High | HS256 validation, audience check, expiry enforcement |
+| Service credential misuse | Low | High | Private network placement, constant-time credential comparison, credential rotation |
 | Embedding extraction via API | Low | Medium | 1:1 verification only, no batch/export endpoint |
 | Decompression bomb | Low | High | Multi-layer image size validation |
 | Model poisoning (MITM download) | Low | High | SHA-256 checksum verification |
@@ -241,7 +219,7 @@ Row-Level Security (RLS) policies in `sql/rls_permissions.sql`:
 1. **Run container as non-root user** — Add `USER appuser` to Dockerfile after package installation.
 2. **Add per-user and per-IP rate limiting** — Implement rate limiting on `/v1/enroll` and `/v1/identify` endpoints to prevent brute-force, resource exhaustion on CPU/GPU, and abuse of biometric processing.
 3. **Use secrets management** — Replace plain environment variables with Docker secrets, HashiCorp Vault, or cloud secrets manager in production.
-4. **Prefer Supabase asymmetric signing keys** — Configure `SUPABASE_JWKS_URL` and exact `SUPABASE_JWT_ISSUER`; retain and rotate `SUPABASE_JWT_SECRET` only while legacy HS256 tokens remain in use.
+4. **Rotate the Astra service credential** — Keep `ROBIN_SERVICE_TOKEN` out of images, Git, and client applications; rotate it through the shared host-side secret files.
 
 ### Medium Priority
 
@@ -279,4 +257,4 @@ Deploying organizations are responsible for ensuring their use complies with all
 
 Please **do not** publicly disclose security vulnerabilities until they have been addressed.
 
-For vulnerabilities in dependencies (`fastapi`, `supabase`, `qdrant-client`, `onnxruntime`, etc.), refer to the respective project's security advisory process.
+For vulnerabilities in dependencies (`fastapi`, `qdrant-client`, `onnxruntime`, etc.), refer to the respective project's security advisory process.

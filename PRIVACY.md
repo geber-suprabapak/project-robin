@@ -28,16 +28,12 @@ The raw face photo is **never stored permanently by Project Robin**. Only the 51
 
 Face embeddings are not raw images and are not designed to reconstruct the original face. However, they are still biometric data and must be treated as sensitive personal data. Deploying organizations should protect embeddings with strong access controls, encryption in transit, restricted database access, and appropriate retention/deletion policies.
 
-### 2.2 User Identity Data
+### 2.2 User Identity Context
 
-Stored in Supabase (`user_profiles` and `biodata_siswa` tables):
-
-- User UUID (from Supabase Auth)
-- Student ID and name
-- Class/group affiliation
-- Enrollment timestamp
-
-This data is populated by the institution and is not collected from external sources.
+Project Robin does not store or resolve user profiles. Astra supplies an
+already-authenticated user identifier in `X-Astra-User-Id` together with its
+private service credential. Student names, classes, and other domain records
+remain in the integrating application.
 
 ### 2.3 Attendance Records
 
@@ -88,7 +84,7 @@ ONNX inference (AuraFace)      ← produces embedding
 
 | Service | What leaves the server |
 | --- | --- |
-| Supabase | User UUID and student profile data — **no face images or embeddings** |
+| Astra | User identity context — **no face images or embeddings** |
 | Qdrant | 512-d embedding vectors — **no face images** |
 | HuggingFace / OpenCV assets (optional) | Public model file downloads — **no user images, embeddings, or identity data sent** |
 | Other external APIs | **None** — Project Robin does not send user images, embeddings, or identity data to external ML APIs |
@@ -109,17 +105,7 @@ Face images **never leave the server** running Project Robin.
 | Encryption in transit | Via HTTPS (configured by `QDRANT_HTTPS` and `QDRANT_API_KEY`) |
 | Isolation | Embeddings are scoped by `user_id` — no cross-user queries |
 
-### 4.2 Supabase (PostgreSQL)
-
-| Aspect | Detail |
-| --- | --- |
-| Data stored | User profiles, student biodata |
-| Retention | Managed by institution via Supabase dashboard or SQL |
-| Encryption at rest | Enabled by default on Supabase-managed projects |
-| Encryption in transit | TLS enforced by Supabase |
-| Access control | Row-Level Security (RLS) policies restrict access to own data |
-
-### 4.3 Logs (Local Volume)
+### 4.2 Logs (Local Volume)
 
 - Written to configurable log directory (`./logs` by default)
 - Contains timestamps and HTTP request/response summaries
@@ -140,7 +126,7 @@ Face images **never leave the server** running Project Robin.
 To fully remove a user's biometric data:
 
 1. **Qdrant**: Delete points matching `user_id` via Qdrant API
-2. **Supabase**: Delete the `user_profiles` and `biodata_siswa` rows
+2. **Domain system**: Apply the institution's user-data deletion policy in Astra or its backing store
 3. **Logs**: Purge relevant log entries from the mounted log volume
 
 There is no API endpoint for bulk or individual embedding deletion — this is by design to prevent unauthorized data removal. Institutions manage deletion through direct database/vector-store administration.
@@ -164,7 +150,7 @@ Project Robin **does not**:
 | Data Type | Default Retention | Controlled By |
 | --- | --- | --- |
 | Face embeddings | Until explicitly deleted or overwritten | Institution (Qdrant admin) |
-| User profiles | Until explicitly deleted | Institution (Supabase admin) |
+| User identity/profile data | Managed by the integrating domain system | Institution |
 | Application logs | Until disk rotation or manual purge | Institution (log volume) |
 | Uploaded face images | **Deleted immediately after processing** | Automatic (code-level) |
 
@@ -176,7 +162,7 @@ The deploying institution should provide mechanisms for:
 
 - **Access**: Confirm whether a user's embeddings exist via `GET /v1/enroll/status`
 - **Rectification**: Re-enrollment overwrites old embeddings with new ones
-- **Deletion**: Managed by institution via Qdrant/Supabase admin tools
+- **Deletion**: Managed by institution via Qdrant and domain-system administration tools
 - **Portability**: 512-d embeddings can be exported directly from Qdrant
 
 The API itself is a tool; user rights administration is the responsibility of the deploying organization under applicable data protection regulations (GDPR, UU PDP, etc.).
@@ -193,7 +179,7 @@ Project Robin does not collect consent by itself. Deploying organizations are re
 
 | Measure | Detail |
 | --- | --- |
-| JWT authentication | Every protected request requires a valid Supabase JWT |
+| Service authentication | Every protected request requires Astra's service credential and user context |
 | 1:1 verification | Users can only verify against their own embeddings |
 | In-memory processing | Face images never written to persistent storage |
 | No telemetry | Zero phone-home, analytics, or usage tracking |
@@ -208,7 +194,7 @@ Project Robin does not collect consent by itself. Deploying organizations are re
 
 | Service | Data Shared | Purpose |
 | --- | --- | --- |
-| Supabase | User ID, student profile | Identity management, profile storage |
+| Astra | User identity context | Authenticated domain integration |
 | Qdrant | 512-d embedding vectors | Vector storage and similarity search |
 | HuggingFace / OpenCV assets (optional) | No user data | Public model and detector asset downloads |
 

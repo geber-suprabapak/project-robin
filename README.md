@@ -4,9 +4,9 @@ Project Robin is an open-source, self-hosted face recognition API for 1:1 attend
 
 It is designed for controlled, consent-based deployments where biometric data stays on-prem or inside the deploying organization's infrastructure.
 
-> **Face recognition attendance API** — 1:1 face verification untuk sistem presensi sekolah/lembaga berbasis Supabase dan Qdrant.
+> **Face recognition attendance API** — 1:1 face verification untuk sistem presensi sekolah/lembaga berbasis Astra dan Qdrant.
 
-Project Robin adalah REST API backend yang menerima foto wajah dari client, memverifikasi identitas user lewat token Supabase, membuat embedding wajah dengan model ONNX (AuraFace), lalu membandingkannya dengan embedding yang tersimpan di Qdrant. Target deployment utama adalah server on-prem atau server internal sekolah/lembaga.
+Project Robin adalah REST API internal yang menerima foto wajah dari Astra, memproses embedding dengan model ONNX (AuraFace), lalu membandingkannya dengan embedding yang tersimpan di Qdrant. Astra memverifikasi identitas dan meneruskan `X-Astra-User-Id` bersama service credential. Target deployment utama adalah server on-prem atau server internal sekolah/lembaga.
 
 ---
 
@@ -37,7 +37,7 @@ Project Robin adalah REST API backend yang menerima foto wajah dari client, memv
 | **Verifikasi presensi 1:1** | Cocokkan wajah user yang sedang login terhadap embedding miliknya di Qdrant |
 | **Enrollment mandiri** | User mengirim 10 foto untuk menyimpan embedding ke Qdrant |
 | **Status enrollment** | Cek apakah user sudah punya embedding tersimpan |
-| **Validasi JWT Supabase** | Setiap endpoint fitur utama diproteksi bearer token |
+| **Astra service boundary** | Endpoint fitur utama hanya menerima credential service Astra dan user context eksplisit |
 | **Health & readiness check** | Bedakan "proses hidup" vs "semua dependency siap" |
 | **Guardrail request** | Batasan ukuran request, image, resolusi, dan pixel |
 | **CPU & GPU image** | Image resmi tersedia untuk CPU (default) dan NVIDIA GPU |
@@ -48,21 +48,16 @@ Project Robin adalah REST API backend yang menerima foto wajah dari client, memv
 ## Arsitektur
 
 ```
-Client (mobile/web)
-        │
-        │  HTTPS + Bearer JWT
+Astra API (auth + domain)
+        │  private service credential + X-Astra-User-Id
         ▼
-┌───────────────────┐
-│   FastAPI API     │  ← Project Robin
-│                   │
-│  ┌─────────────┐  │       ┌──────────────┐
-│  │ ONNX Runtime│  │──────▶│   Qdrant     │  (external)
-│  │ (AuraFace)  │  │       │ vector store │
-│  └─────────────┘  │       └──────────────┘
-│  ┌─────────────┐  │       ┌──────────────┐
-│  │ OpenCV DNN  │  │──────▶│   Supabase   │  (external)
-│  │ face detect │  │       │  user/JWT    │
-│  └─────────────┘  │       └──────────────┘
+┌───────────────────┐              ┌──────────────┐
+│   FastAPI API     │─────────────▶│   Qdrant     │
+│   Project Robin   │              │ vector store │
+│  ┌─────────────┐  │              └──────────────┘
+│  │ ONNX Runtime│  │
+│  │ + OpenCV DNN│  │
+│  └─────────────┘  │
 └───────────────────┘
 ```
 
@@ -71,7 +66,7 @@ Client (mobile/web)
 - **FastAPI** — HTTP API, routing, middleware, auth dependency, response handling
 - **ONNX Runtime** — menjalankan model face recognition dari file `.onnx`
 - **OpenCV DNN** — face detector untuk memastikan foto berisi tepat satu wajah
-- **Supabase** — validasi user profile, student profile, dan JWT secret
+- **Astra** — identity and domain boundary; Robin tidak mengakses database domain atau provider identity secara langsung
 - **Qdrant** — vector database untuk penyimpanan dan pencarian embedding wajah
 
 > **Catatan:** Qdrant tidak dijalankan oleh Compose repository ini. Gunakan Qdrant external—baik self-hosted maupun Qdrant Cloud.
@@ -83,15 +78,13 @@ Client (mobile/web)
 ### Alur Presensi (`POST /v1/identify`)
 
 ```
-Client                         API                      Supabase        Qdrant
+Client                         Astra                    Robin        Qdrant
   │                             │                           │               │
-  │── POST /v1/identify ───────▶│                           │               │
-  │   Authorization: Bearer JWT │                           │               │
+  │── attendance request ──────▶│                           │               │
+  │                             │── service call ──────────▶│               │
+  │                             │   X-Astra-User-Id        │               │
   │   { "image_base64": "..." } │                           │               │
-  │                             │── verify JWT ────────────▶│               │
-  │                             │◀─ user sub ───────────────│               │
-  │                             │── lookup user_profiles ──▶│               │
-  │                             │◀─ user data ──────────────│               │
+  │                             │                           │               │
   │                             │                           │               │
   │                             │  [decode & validate image]│               │
   │                             │  [detect face → crop]     │               │
@@ -101,8 +94,7 @@ Client                         API                      Supabase        Qdrant
   │                             │◀─ stored embedding ────────────────────────│
   │                             │                           │               │
   │                             │  [cosine similarity 1:1]  │               │
-  │                             │── get student profile ───▶│               │
-  │                             │◀─ student data ───────────│               │
+  │                             │◀─ verification result ────│               │
   │                             │                           │               │
   │◀── 200 OK ─────────────────│                           │               │
   │    { status, student_id,    │                           │               │
@@ -111,8 +103,8 @@ Client                         API                      Supabase        Qdrant
 
 ### Alur Enrollment (`POST /v1/enroll`)
 
-1. Client mengirim bearer token Supabase + tepat **10 foto wajah** via `multipart/form-data`
-2. API memverifikasi user dari Supabase
+1. Astra mengirim service credential, `X-Astra-User-Id`, dan tepat **10 foto wajah** via `multipart/form-data`
+2. API memverifikasi service credential dan memakai user context dari Astra
 3. Setiap foto dicek validitas dan dipastikan berisi tepat satu wajah
 4. Setiap foto diproses menjadi embedding 512-dimensi
 5. Embedding lama user di Qdrant diganti dengan embedding baru
@@ -125,7 +117,7 @@ Client                         API                      Supabase        Qdrant
 Sebelum menjalankan Project Robin, siapkan:
 
 1. **Docker & Docker Compose** — untuk menjalankan container API
-2. **Supabase project** — dengan tabel `user_profiles`, `student_profiles`, dan JWT secret
+2. **Astra service credential** — credential internal dan user context dari Astra
 3. **Qdrant instance** — self-hosted atau Qdrant Cloud (external; tidak dijalankan Compose ini)
 4. **Model ONNX (AuraFace)** — file `glintr100.onnx` di direktori `./models/`
 
@@ -167,15 +159,8 @@ cp .env.example .env
 Minimal yang wajib diisi:
 
 ```ini
-# Supabase
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-anon-key
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-SUPABASE_JWKS_URL=https://your-project.supabase.co/auth/v1/.well-known/jwks.json
-SUPABASE_JWT_ISSUER=https://your-project.supabase.co
-SUPABASE_JWT_AUDIENCE=authenticated
-# Legacy HS256 fallback only:
-SUPABASE_JWT_SECRET=
+# Astra service boundary
+ROBIN_SERVICE_TOKEN=replace-with-the-same-secret-as-astra
 
 # Qdrant (external)
 QDRANT_HOST=https://your-qdrant-host.example.com
@@ -218,7 +203,6 @@ Response readiness OK:
   "model_loaded": true,
   "face_detector_ready": true,
   "gpu_available": false,
-  "supabase_connected": true,
   "qdrant_connected": true
 }
 ```
@@ -249,7 +233,8 @@ Sebelum bisa melakukan presensi, user perlu mendaftarkan wajahnya. Kirim tepat *
 
 ```bash
 curl -X POST http://localhost:8000/v1/enroll \
-  -H "Authorization: Bearer <supabase-jwt>" \
+  -H "Authorization: Bearer <robin-service-token>" \
+  -H "X-Astra-User-Id: <user-id>" \
   -F "files=@foto1.jpg" \
   -F "files=@foto2.jpg" \
   -F "files=@foto3.jpg" \
@@ -298,7 +283,8 @@ Aplikasi client dapat mengecek apakah user sudah enrollment sebelum memperbolehk
 
 ```bash
 curl http://localhost:8000/v1/enroll/status \
-  -H "Authorization: Bearer <supabase-jwt>"
+  -H "Authorization: Bearer <robin-service-token>" \
+  -H "X-Astra-User-Id: <user-id>"
 ```
 
 **Response sudah enrollment (`200`):**
@@ -331,7 +317,8 @@ User melakukan presensi dengan mengirim satu foto wajah dalam format base64.
 
 ```bash
 curl -X POST http://localhost:8000/v1/identify \
-  -H "Authorization: Bearer <supabase-jwt>" \
+  -H "Authorization: Bearer <robin-service-token>" \
+  -H "X-Astra-User-Id: <user-id>" \
   -H "Content-Type: application/json" \
   -d '{
     "image_base64": "<base64-encoded-image>"
@@ -394,7 +381,10 @@ import httpx
 
 response = httpx.post(
     "http://localhost:8000/v1/identify",
-    headers={"Authorization": f"Bearer {supabase_jwt}"},
+    headers={
+        "Authorization": f"Bearer {robin_service_token}",
+        "X-Astra-User-Id": user_id,
+    },
     json={"image_base64": image_base64},
 )
 print(response.json())
@@ -410,13 +400,7 @@ Buat `.env` dari `.env.example`, lalu isi nilainya sesuai deployment.
 
 | Env | Keterangan |
 | --- | --- |
-| `SUPABASE_URL` | URL project Supabase (`https://xxx.supabase.co`) |
-| `SUPABASE_KEY` | Supabase anon key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Service role key untuk server-side lookup |
-| `SUPABASE_JWKS_URL` | Endpoint JWKS Supabase untuk verifikasi token ES256 |
-| `SUPABASE_JWT_ISSUER` | Nilai `iss` token yang harus cocok persis |
-| `SUPABASE_JWT_AUDIENCE` | Audience token (default: `authenticated`) |
-| `SUPABASE_JWT_SECRET` | Fallback legacy untuk token HS256; kosongkan saat JWKS aktif |
+| `ROBIN_SERVICE_TOKEN` | Credential internal yang dibagikan Astra saat memanggil Robin |
 | `QDRANT_HOST` | Host atau URL Qdrant external |
 | `QDRANT_COLLECTION_NAME` | Nama collection embedding (default: `face_embeddings`) |
 
@@ -519,7 +503,7 @@ Face detector asset **sudah dibake** ke official Docker image saat build. Tidak 
 
 ### `/live` — Liveness
 
-Menandakan proses API hidup. **Tidak** mengecek model, Supabase, atau Qdrant. Cocok untuk Docker liveness probe.
+Menandakan proses API hidup. **Tidak** mengecek model atau Qdrant. Cocok untuk Docker liveness probe.
 
 ```bash
 curl http://localhost:8000/live
@@ -532,7 +516,6 @@ Mengecek apakah API siap melayani request nyata. Mengembalikan `200` hanya jika 
 
 - ✅ Model ONNX sudah loaded
 - ✅ Face detector asset tersedia
-- ✅ Supabase reachable
 - ✅ Qdrant reachable
 
 Jika salah satu gagal, response `503`:
@@ -543,12 +526,11 @@ Jika salah satu gagal, response `503`:
   "model_loaded": true,
   "face_detector_ready": true,
   "gpu_available": false,
-  "supabase_connected": true,
   "qdrant_connected": false
 }
 ```
 
-> Kondisi Qdrant atau Supabase down **tidak** disamarkan menjadi "user belum enroll" atau "user tidak ditemukan".
+> Kondisi Qdrant down **tidak** disamarkan menjadi "user belum enroll" atau "user tidak ditemukan".
 
 ---
 
@@ -560,10 +542,10 @@ Jika salah satu gagal, response `503`:
 | --- | --- |
 | `200` | Request valid dan berhasil diproses |
 | `400` | Image tidak valid, jumlah file enrollment salah, atau wajah tidak valid/terdeteksi |
-| `401` | Bearer token tidak ada, invalid, expired, atau user tidak ditemukan di Supabase |
+| `401` | Credential Astra tidak ada/invalid atau user context tidak ada |
 | `413` | Ukuran request melebihi `MAX_REQUEST_BYTES` |
 | `422` | Body JSON tidak sesuai schema |
-| `503` | Supabase, Qdrant, model, atau dependency wajib belum siap |
+| `503` | Qdrant, model, atau dependency wajib belum siap |
 | `500` | Error internal tak terduga |
 
 ### Field `status` pada Response Identify
@@ -584,7 +566,7 @@ Development berjalan lewat Docker Compose override yang me-mount source code lok
 ```bash
 # 1. Siapkan .env
 cp .env.example .env
-# Isi konfigurasi Supabase, Qdrant, dan model
+# Isi konfigurasi Astra service boundary, Qdrant, dan model
 
 # 2. Letakkan model ONNX
 mkdir -p models
