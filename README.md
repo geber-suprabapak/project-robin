@@ -592,7 +592,7 @@ mkdir -p models
 
 # 3. Pull image resmi dan jalankan dengan override dev
 docker compose pull
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+docker compose -f compose.yaml -f docker-compose.dev.yml up
 ```
 
 Mode development me-mount `./src` ke dalam container sehingga perubahan kode langsung terreflect tanpa rebuild image.
@@ -655,7 +655,7 @@ Image CPU adalah default. Untuk akselerasi NVIDIA GPU:
 GPU_IMAGE_TAG=gpu-<short-sha>
 
 # 2. Jalankan dengan override GPU
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+docker compose -f compose.yaml -f docker-compose.gpu.yml up -d
 ```
 
 Override GPU otomatis mengubah image ke tag GPU dan set `GPU_DEVICE_ID=0`.
