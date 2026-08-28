@@ -108,7 +108,7 @@ app.add_middleware(
     allow_origins=settings.cors_allowed_origin_list,
     allow_headers=["Authorization", "Content-Type", "X-Astra-User-Id", "X-Request-ID"],
     expose_headers=["X-Robin-Contract-Version"],
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
 )
 
 # Register routers

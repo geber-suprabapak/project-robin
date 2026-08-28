@@ -26,3 +26,16 @@ def test_oversized_content_length_returns_413(client, monkeypatch):
 
     assert response.status_code == 413
     assert response.json()["error"] == "RequestTooLarge"
+
+
+def test_cors_preflight_allows_delete(client):
+    headers = {
+        "Origin": "http://localhost:3000",
+        "Access-Control-Request-Method": "DELETE",
+        "Access-Control-Request-Headers": "Authorization, X-Astra-User-Id",
+    }
+    response = client.options("/v1/enroll", headers=headers)
+    assert response.status_code == 200
+    allow_methods = response.headers.get("access-control-allow-methods", "")
+    assert "DELETE" in allow_methods
+
