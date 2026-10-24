@@ -54,8 +54,11 @@ RUN chown -R appuser:appuser /app
 
 USER appuser
 
-# Fail the image build if the default runtime user cannot use the project venv.
-RUN python -c "import sys, fastapi, uvicorn; assert sys.prefix == '/app/.venv', sys.prefix"
+# Fail the image build if the default runtime user cannot use the project venv,
+# or if the runtime extra installed metadata without importable API files.
+# Works for both cpu (onnxruntime) and gpu (onnxruntime-gpu) builds: both
+# provide the onnxruntime module and both include CPUExecutionProvider.
+RUN python -c "import sys, fastapi, uvicorn, onnxruntime as ort; assert sys.prefix == '/app/.venv', sys.prefix; assert ort.__file__, 'onnxruntime has no importable API files'; providers = ort.get_available_providers(); print(','.join(providers)); assert 'CPUExecutionProvider' in providers, providers"
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/ready || exit 1

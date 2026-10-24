@@ -50,47 +50,70 @@ class QdrantService:
     def __init__(self):
         """Initialize service (client initialization is lazy)."""
         self._client: Optional[AsyncQdrantClient] = None
+        self._collection_ready: bool = False
         self.collection_name = settings.qdrant_collection_name
-    
-    async def get_client(self) -> AsyncQdrantClient:
+
+    async def _connect(self) -> AsyncQdrantClient:
         """
-        Get or create AsyncQdrantClient instance (lazy initialization).
-        
+        Get or create the AsyncQdrantClient without any collection setup.
+
+        This performs no server I/O and no mutation; it only builds the lazy
+        client so callers can run strictly read-only checks.
+
         Returns:
             AsyncQdrantClient instance
-            
+        """
+        if self._client is None:
+            # Build connection based on host format
+            if "://" in settings.qdrant_host:
+                # Full URL provided (e.g., https://qdrant.example.com)
+                self._client = AsyncQdrantClient(
+                    url=settings.qdrant_host,
+                    api_key=settings.qdrant_api_key or None,
+                    timeout=settings.qdrant_timeout_seconds,
+                )
+            else:
+                # Host + port provided
+                self._client = AsyncQdrantClient(
+                    host=settings.qdrant_host,
+                    port=settings.qdrant_port,
+                    api_key=settings.qdrant_api_key or None,
+                    https=settings.qdrant_https,
+                    timeout=settings.qdrant_timeout_seconds,
+                )
+            # A freshly built client has not had its collection verified/created.
+            self._collection_ready = False
+        return self._client
+
+    async def get_client(self) -> AsyncQdrantClient:
+        """
+        Get or create AsyncQdrantClient instance and ensure the collection exists.
+
+        This is the setup/enrollment path: it may create and index the
+        configured collection if it is absent. Readiness/liveness checks must
+        use `is_connected()` instead so health probes never mutate Qdrant.
+
+        Returns:
+            AsyncQdrantClient instance
+
         Raises:
             QdrantUnavailableError: If client initialization fails
         """
-        if self._client is None:
-            try:
-                # Build connection based on host format
-                if "://" in settings.qdrant_host:
-                    # Full URL provided (e.g., https://qdrant.example.com)
-                    self._client = AsyncQdrantClient(
-                        url=settings.qdrant_host,
-                        api_key=settings.qdrant_api_key or None,
-                        timeout=settings.qdrant_timeout_seconds,
-                    )
-                else:
-                    # Host + port provided
-                    self._client = AsyncQdrantClient(
-                        host=settings.qdrant_host,
-                        port=settings.qdrant_port,
-                        api_key=settings.qdrant_api_key or None,
-                        https=settings.qdrant_https,
-                        timeout=settings.qdrant_timeout_seconds,
-                    )
-                
-                # Ensure collection exists
+        try:
+            await self._connect()
+
+            # Ensure collection exists (once per client instance)
+            if not self._collection_ready:
                 await self._ensure_collection()
+                self._collection_ready = True
                 logger.info(f"✓ Qdrant client initialized - Collection: {self.collection_name}")
-                
-            except Exception as e:
-                logger.error(f"✗ Failed to initialize Qdrant client: {str(e)}")
-                self._client = None
-                raise QdrantUnavailableError(f"Qdrant initialization failed: {str(e)}") from e
-        
+
+        except Exception as e:
+            logger.error(f"✗ Failed to initialize Qdrant client: {str(e)}")
+            self._client = None
+            self._collection_ready = False
+            raise QdrantUnavailableError(f"Qdrant initialization failed: {str(e)}") from e
+
         return self._client
 
     async def _with_timeout(self, awaitable, operation: str):
@@ -151,14 +174,25 @@ class QdrantService:
     
     async def is_connected(self) -> bool:
         """
-        Check if Qdrant client is connected and responsive.
-        
+        Check if Qdrant is reachable and the configured collection exists.
+
+        Strictly read-only: it never creates or indexes the collection and
+        never performs any data operation. A missing collection reports
+        not-ready so health probes cannot mask a missing schema; collection
+        creation happens only through `get_client()` (setup/enrollment path).
+
         Returns:
-            True if connected, False otherwise
+            True if Qdrant is reachable and the collection exists, False otherwise
         """
         try:
-            client = await self.get_client()
-            await self._with_timeout(client.get_collections(), "connection check")
+            client = await self._connect()
+            collections = await self._with_timeout(client.get_collections(), "connection check")
+            exists = any(c.name == self.collection_name for c in collections.collections)
+            if not exists:
+                logger.warning(
+                    f"Qdrant reachable but collection '{self.collection_name}' is missing; reporting not ready"
+                )
+                return False
             return True
         except Exception as e:
             logger.warning(f"Qdrant connection check failed: {str(e)}")

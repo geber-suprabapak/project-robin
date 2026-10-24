@@ -37,6 +37,10 @@ jobs:
       - name: Sync CPU dependencies
         run: uv sync --frozen --extra cpu --group dev --python ${{ env.PYTHON_VERSION }}
 
+      - name: CPU runtime import smoke
+        run: |-
+          uv run python -c 'import onnxruntime as ort; print(ort.__file__); assert ort.__file__, "onnxruntime has no importable API files"; providers = ort.get_available_providers(); print(",".join(providers)); assert "CPUExecutionProvider" in providers, providers'
+
       - name: Lint
         run: uv run ruff check src tests
 

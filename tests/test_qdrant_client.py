@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import asyncio
+
 import numpy as np
 import pytest
 
@@ -120,3 +122,138 @@ async def test_qdrant_operation_errors_are_wrapped(monkeypatch):
 
     with pytest.raises(QdrantOperationError, match="Failed to count embeddings"):
         await service.get_user_embedding_count("u1")
+
+
+class _WriteRecorder:
+    """Mixin recording every mutating Qdrant call for zero-write assertions."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.create_collection_calls = 0
+        self.create_payload_index_calls = 0
+        self.upsert_calls = 0
+        self.delete_calls = 0
+
+    async def create_collection(self, **kwargs):
+        self.create_collection_calls += 1
+
+    async def create_payload_index(self, **kwargs):
+        self.create_payload_index_calls += 1
+
+    async def upsert(self, **kwargs):
+        self.upsert_calls += 1
+        self.upserted_points = kwargs["points"]
+
+    async def delete(self, **kwargs):
+        self.delete_calls += 1
+        self.deleted = True
+
+
+class RecordingQdrantClient(_WriteRecorder, FakeQdrantClient):
+    pass
+
+
+class SlowCollectionsClient(RecordingQdrantClient):
+    def __init__(self, *, delay_seconds, **kwargs):
+        super().__init__(**kwargs)
+        self.delay_seconds = delay_seconds
+
+    async def get_collections(self):
+        await asyncio.sleep(self.delay_seconds)
+        return SimpleNamespace(collections=[SimpleNamespace(name=name) for name in self.collections])
+
+
+def _assert_zero_writes(client: RecordingQdrantClient) -> None:
+    assert client.create_collection_calls == 0
+    assert client.create_payload_index_calls == 0
+    assert client.upsert_calls == 0
+    assert client.delete_calls == 0
+
+
+@pytest.mark.anyio
+async def test_is_connected_ready_collection_is_read_only(monkeypatch):
+    client = RecordingQdrantClient(collections=["faces"])
+    monkeypatch.setattr(qdrant_client, "AsyncQdrantClient", lambda **kwargs: client)
+    monkeypatch.setattr(qdrant_client.settings, "qdrant_collection_name", "faces")
+
+    service = QdrantService()
+
+    assert await service.is_connected() is True
+    _assert_zero_writes(client)
+
+
+@pytest.mark.anyio
+async def test_is_connected_missing_collection_reports_not_ready_without_setup(monkeypatch):
+    client = RecordingQdrantClient(collections=[])
+    monkeypatch.setattr(qdrant_client, "AsyncQdrantClient", lambda **kwargs: client)
+    monkeypatch.setattr(qdrant_client.settings, "qdrant_collection_name", "faces")
+
+    service = QdrantService()
+
+    assert await service.is_connected() is False
+    _assert_zero_writes(client)
+
+
+@pytest.mark.anyio
+async def test_is_connected_unreachable_reports_not_ready_without_setup(monkeypatch):
+    client = RecordingQdrantClient(collections=["faces"], fail_collections=True)
+    monkeypatch.setattr(qdrant_client, "AsyncQdrantClient", lambda **kwargs: client)
+    monkeypatch.setattr(qdrant_client.settings, "qdrant_collection_name", "faces")
+
+    service = QdrantService()
+
+    assert await service.is_connected() is False
+    _assert_zero_writes(client)
+
+
+@pytest.mark.anyio
+async def test_is_connected_timeout_is_bounded(monkeypatch):
+    client = SlowCollectionsClient(collections=["faces"], delay_seconds=1.0)
+    monkeypatch.setattr(qdrant_client, "AsyncQdrantClient", lambda **kwargs: client)
+    monkeypatch.setattr(qdrant_client.settings, "qdrant_collection_name", "faces")
+    monkeypatch.setattr(qdrant_client.settings, "qdrant_timeout_seconds", 0.05)
+
+    service = QdrantService()
+
+    start = asyncio.get_running_loop().time()
+    connected = await service.is_connected()
+    elapsed = asyncio.get_running_loop().time() - start
+
+    assert connected is False
+    assert elapsed < 1.0
+    _assert_zero_writes(client)
+
+
+@pytest.mark.anyio
+async def test_is_connected_never_blocks_later_enrollment_setup(monkeypatch):
+    """Readiness on a missing collection must not hide the explicit setup path."""
+    client = RecordingQdrantClient(collections=[])
+    monkeypatch.setattr(qdrant_client, "AsyncQdrantClient", lambda **kwargs: client)
+    monkeypatch.setattr(qdrant_client.settings, "qdrant_collection_name", "faces")
+
+    service = QdrantService()
+
+    assert await service.is_connected() is False
+    assert client.create_collection_calls == 0
+
+    await service.enroll_user_embeddings("u1", [np.array([1.0, 0.0])])
+
+    assert client.create_collection_calls == 1
+    assert client.create_payload_index_calls == 1
+    assert len(client.upserted_points) == 1
+
+
+@pytest.mark.anyio
+async def test_get_client_setup_failure_resets_ready_flag(monkeypatch):
+    client = RecordingQdrantClient(collections=[], fail_collections=True)
+    monkeypatch.setattr(qdrant_client, "AsyncQdrantClient", lambda **kwargs: client)
+    monkeypatch.setattr(qdrant_client.settings, "qdrant_collection_name", "faces")
+
+    service = QdrantService()
+
+    with pytest.raises(QdrantUnavailableError, match="initialization failed"):
+        await service.get_client()
+
+    assert service._client is None
+    assert service._collection_ready is False
+    assert client.create_collection_calls == 0

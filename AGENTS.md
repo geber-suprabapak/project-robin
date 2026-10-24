@@ -1,4 +1,12 @@
 <!-- repo-map:start -->
+## Development and verification
+
+This is a Python 3.12+ FastAPI service managed with uv. Use `uv sync --group dev`
+to provision development dependencies, `uv run ruff check src tests` for linting,
+and `uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=70` for
+the documented coverage gate. Read `README.md` before starting a local API server;
+the project configuration remains authoritative.
+
 ## Codebase semantic map
 
 Start repository-wide orientation at `docs/codebase-map/README.md`.
