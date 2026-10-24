@@ -64,8 +64,9 @@ async def test_qdrant_get_client_creates_missing_collection(monkeypatch):
     service = QdrantService()
     client = await service.get_client()
 
-    assert client.created_collection is True
-    assert client.created_payload_index is True
+    assert created["client"].created_collection is True
+    assert created["client"].created_payload_index is True
+    assert client is created["client"]
     assert created["client"].kwargs["host"] == "localhost"
 
 
@@ -107,6 +108,7 @@ async def test_qdrant_retrieve_and_verify_embeddings(monkeypatch):
     verification = await service.verify_face_1to1("u1", np.array([1.0, 0.0]), threshold=0.6)
 
     assert embeddings[0]["id"] == "p1"
+    assert verification is not None
     assert verification["verified"] is True
     assert verification["confidence"] == 1.0
 

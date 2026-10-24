@@ -89,7 +89,7 @@ async def enforce_request_size(request: Request, call_next):
 
         if request_size > settings.max_request_bytes:
             return JSONResponse(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                 content={
                     "status": "error",
                     "error": "RequestTooLarge",

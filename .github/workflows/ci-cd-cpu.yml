@@ -47,6 +47,12 @@ jobs:
       - name: Test
         run: uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=70
 
+      - name: Type check
+        run: uv run ty check
+
+      - name: Dependency vulnerability audit
+        run: uv run pip-audit
+
   build:
     name: Build and publish CPU image
     needs: quality
@@ -71,11 +77,14 @@ jobs:
         run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
       - name: Build CPU image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
+          provenance: mode=max
+          sbom: true
           build-args: |
             RUNTIME_TYPE=cpu
             BASE_IMAGE=python:3.12-slim-bookworm
@@ -85,3 +94,8 @@ jobs:
             ${{ env.IMAGE_NAME }}:cpu-${{ env.SHORT_SHA }}
           cache-from: type=gha,scope=cpu
           cache-to: type=gha,mode=max,scope=cpu
+
+      - name: Record image digest
+        if: ${{ github.event_name != 'pull_request' && steps.build.outputs.digest != '' }}
+        shell: bash
+        run: echo "cpu image digest ${{ steps.build.outputs.digest }} for source $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

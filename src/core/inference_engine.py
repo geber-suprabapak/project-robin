@@ -6,7 +6,7 @@ Implements singleton pattern for efficient model loading.
 import os
 import threading
 import logging
-from typing import Optional, List
+from typing import Any, Optional
 import numpy as np
 import onnxruntime as ort
 
@@ -116,12 +116,14 @@ class FaceInferenceEngine:
             logger.error(f"Failed to load ONNX model: {str(e)}")
             raise RuntimeError(f"Model loading failed: {str(e)}")
     
-    def _configure_providers(self) -> List[str]:
+    def _configure_providers(self) -> list[str | tuple[str, dict[str, Any]]]:
         """
         Configure ONNX Runtime execution providers with GPU priority and CPU fallback.
-        
+
         Returns:
-            List of providers in priority order
+            Providers in priority order; entries are either a provider name or
+            a (provider name, options dict) tuple, matching the shapes accepted
+            by ``onnxruntime.InferenceSession``.
         """
         providers = []
         
@@ -159,7 +161,8 @@ class FaceInferenceEngine:
         """
         if not self._initialized:
             raise RuntimeError("Model not loaded. Call load_model() first.")
-        
+        assert self._session is not None and self._input_name is not None and self._output_name is not None
+
         logger.info("Warming up inference engine...")
         
         try:
@@ -197,7 +200,8 @@ class FaceInferenceEngine:
         """
         if not self._initialized:
             raise RuntimeError("Model not loaded. Call load_model() first.")
-        
+        assert self._session is not None and self._input_name is not None and self._output_name is not None
+
         # Ensure correct shape
         expected_shape = (1, 3, settings.model_input_size, settings.model_input_size)
         if image_array.shape != expected_shape:
@@ -213,8 +217,9 @@ class FaceInferenceEngine:
                     {self._input_name: image_array}
                 )
                 
-                # Extract embedding vector and flatten
-                embedding = outputs[0].flatten()
+                # Extract embedding vector and flatten (np.asarray normalizes the
+                # ModelResult union -- ndarray / SparseTensor / list / dict -- to an array)
+                embedding = np.asarray(outputs[0]).flatten()
                 
                 # Normalize embedding (L2 normalization)
                 norm = np.linalg.norm(embedding)

@@ -70,7 +70,7 @@ class QdrantService:
                 self._client = AsyncQdrantClient(
                     url=settings.qdrant_host,
                     api_key=settings.qdrant_api_key or None,
-                    timeout=settings.qdrant_timeout_seconds,
+                    timeout=settings.qdrant_timeout_seconds,  # ty: ignore[invalid-argument-type]  upstream stub says Optional[int]; the value is forwarded to httpx which accepts float
                 )
             else:
                 # Host + port provided
@@ -79,7 +79,7 @@ class QdrantService:
                     port=settings.qdrant_port,
                     api_key=settings.qdrant_api_key or None,
                     https=settings.qdrant_https,
-                    timeout=settings.qdrant_timeout_seconds,
+                    timeout=settings.qdrant_timeout_seconds,  # ty: ignore[invalid-argument-type]  upstream stub says Optional[int]; the value is forwarded to httpx which accepts float
                 )
             # A freshly built client has not had its collection verified/created.
             self._collection_ready = False
@@ -100,7 +100,7 @@ class QdrantService:
             QdrantUnavailableError: If client initialization fails
         """
         try:
-            await self._connect()
+            client = await self._connect()
 
             # Ensure collection exists (once per client instance)
             if not self._collection_ready:
@@ -114,7 +114,7 @@ class QdrantService:
             self._collection_ready = False
             raise QdrantUnavailableError(f"Qdrant initialization failed: {str(e)}") from e
 
-        return self._client
+        return client
 
     async def _with_timeout(self, awaitable, operation: str):
         """Run a Qdrant awaitable with a configured timeout."""
