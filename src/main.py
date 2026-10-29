@@ -97,6 +97,31 @@ async def enforce_request_size(request: Request, call_next):
                 },
             )
 
+    if request.url.path.startswith("/v1/") and request.method != "OPTIONS":
+        request_id = request.headers.get("x-request-id")
+        contract_version = request.headers.get("x-astra-contract-version")
+        if not request_id or not request_id.strip():
+            contract_error = ("MissingRequestId", "X-Request-ID header is required")
+        elif not contract_version:
+            contract_error = (
+                "MissingAstraContractVersion",
+                "X-Astra-Contract-Version header is required",
+            )
+        elif contract_version != "v1":
+            contract_error = (
+                "UnsupportedAstraContractVersion",
+                "X-Astra-Contract-Version must be v1",
+            )
+        else:
+            contract_error = None
+
+        if contract_error:
+            error, message = contract_error
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"status": "error", "error": error, "message": message},
+            )
+
     response = await call_next(request)
     response.headers["X-Robin-Contract-Version"] = "v1"
     return response

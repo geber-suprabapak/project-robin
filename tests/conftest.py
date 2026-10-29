@@ -18,4 +18,6 @@ def auth_headers():
     return {
         "Authorization": "Bearer dev-robin-service-token",
         "X-Astra-User-Id": TEST_USER_ID,
+        "X-Request-ID": "test-request-id",
+        "X-Astra-Contract-Version": "v1",
     }
