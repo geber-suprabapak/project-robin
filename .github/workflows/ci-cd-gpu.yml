@@ -30,11 +30,11 @@ jobs:
         run: uv lock --check
 
       - name: Sync GPU dependencies
-        run: uv sync --frozen --extra gpu --group dev --python ${{ env.PYTHON_VERSION }}
+        run: uv sync --frozen --extra gpu --group dev --group gpu-ci --python ${{ env.PYTHON_VERSION }}
 
-      - name: GPU runtime import smoke
+      - name: GPU runtime provider smoke
         run: |-
-          uv run python -c 'import onnxruntime as ort; print(ort.__file__); assert ort.__file__, "onnxruntime has no importable API files"; providers = ort.get_available_providers(); print(",".join(providers)); assert "CPUExecutionProvider" in providers, providers'
+          uv run python -c 'import ctypes, onnxruntime as ort; print(ort.__file__); assert ort.__file__, "onnxruntime has no importable API files"; ort.preload_dlls(directory=""); ctypes.CDLL("libcudart.so.12"); ctypes.CDLL("libcudnn.so.9"); providers = ort.get_available_providers(); print(",".join(providers)); assert "CPUExecutionProvider" in providers, providers; assert "CUDAExecutionProvider" in providers, providers'
 
       - name: Lint
         run: uv run ruff check src tests
@@ -81,7 +81,7 @@ jobs:
           sbom: true
           build-args: |
             RUNTIME_TYPE=gpu
-            BASE_IMAGE=nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+            BASE_IMAGE=nvidia/cuda:12.9.2-cudnn-runtime-ubuntu24.04
             PYTHON_VERSION=${{ env.PYTHON_VERSION }}
           tags: |
             ${{ env.IMAGE_NAME }}:gpu-${{ env.SHORT_SHA }}

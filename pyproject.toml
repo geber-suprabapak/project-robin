@@ -24,7 +24,7 @@ cpu = [
     "onnxruntime>=1.18.0",
 ]
 gpu = [
-    "onnxruntime-gpu>=1.18.0",
+    "onnxruntime-gpu>=1.21.0",
 ]
 
 [build-system]
@@ -41,6 +41,9 @@ dev = [
     "pytest>=8.0.0",
     "ruff>=0.8.0",
     "ty>=0.0.91",
+]
+gpu-ci = [
+    "onnxruntime-gpu[cuda,cudnn]>=1.21.0",
 ]
 
 [tool.coverage.run]

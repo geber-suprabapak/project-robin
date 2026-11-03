@@ -54,11 +54,9 @@ RUN chown -R appuser:appuser /app
 
 USER appuser
 
-# Fail the image build if the default runtime user cannot use the project venv,
-# or if the runtime extra installed metadata without importable API files.
-# Works for both cpu (onnxruntime) and gpu (onnxruntime-gpu) builds: both
-# provide the onnxruntime module and both include CPUExecutionProvider.
-RUN python -c "import sys, fastapi, uvicorn, onnxruntime as ort; assert sys.prefix == '/app/.venv', sys.prefix; assert ort.__file__, 'onnxruntime has no importable API files'; providers = ort.get_available_providers(); print(','.join(providers)); assert 'CPUExecutionProvider' in providers, providers"
+# Fail the build if the runtime extra or CUDA/cuDNN libraries do not match.
+# Provider registration is checked here; GPU execution still needs hardware.
+RUN python -c "import ctypes, sys, fastapi, uvicorn, onnxruntime as ort; assert sys.prefix == '/app/.venv', sys.prefix; assert ort.__file__, 'onnxruntime has no importable API files'; is_gpu = '${RUNTIME_TYPE}' == 'gpu'; ort.preload_dlls() if is_gpu else None; providers = ort.get_available_providers(); print(','.join(providers)); expected = 'CUDAExecutionProvider' if is_gpu else 'CPUExecutionProvider'; assert expected in providers, providers; tuple(ctypes.CDLL(lib) for lib in (['libcudart.so.12', 'libcudnn.so.9'] if is_gpu else []))"
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/ready || exit 1

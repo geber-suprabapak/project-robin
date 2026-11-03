@@ -133,6 +133,9 @@ class FaceInferenceEngine:
             available_providers = ort.get_available_providers()
             
             if "CUDAExecutionProvider" in available_providers:
+                # Load from NVIDIA site packages in CI or system libraries in
+                # the CUDA runtime image before creating a session.
+                ort.preload_dlls()
                 cuda_options = {
                     "device_id": settings.gpu_device_id,
                     "gpu_mem_limit": settings.gpu_mem_limit,
