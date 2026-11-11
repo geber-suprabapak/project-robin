@@ -18,6 +18,7 @@ from qdrant_client.models import (
     PointStruct,
     Filter,
     FieldCondition,
+    HasIdCondition,
     MatchValue,
     PayloadSchemaType,
 )
@@ -206,11 +207,10 @@ class QdrantService:
     ) -> Dict[str, Any]:
         """
         Enroll multiple face embeddings for a user.
-        
-        Deletes existing embeddings first, then inserts new ones.
-        This ensures users always have exactly the embeddings from their
-        most recent enrollment.
-        
+
+        Upserts deterministic point IDs first, then deletes any stale points
+        for the user so existing enrollments are preserved if upsert fails.
+
         Args:
             user_id: User ID from JWT sub claim
             embeddings: List of face embedding vectors (numpy arrays)
@@ -227,17 +227,14 @@ class QdrantService:
         """
         try:
             client = await self.get_client()
-            
-            # Step 1: Delete existing embeddings for this user
-            deleted = await self.delete_user_embeddings(user_id)
-            logger.info(f"Deleted {deleted} existing embeddings for user_id={user_id}")
-            
-            # Step 2: Prepare points with payload
+
             enrolled_at = datetime.now(timezone.utc).isoformat()
             points = []
-            
+            point_ids = []
+
             for idx, embedding in enumerate(embeddings):
-                point_id = str(uuid.uuid4())  # Unique ID per embedding
+                point_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"{user_id}:{idx + 1}"))
+                point_ids.append(point_id)
                 points.append(
                     PointStruct(
                         id=point_id,
@@ -251,8 +248,7 @@ class QdrantService:
                         }
                     )
                 )
-            
-            # Step 3: Upsert all points
+
             await self._with_timeout(
                 client.upsert(
                     collection_name=self.collection_name,
@@ -261,9 +257,28 @@ class QdrantService:
                 ),
                 "upsert embeddings",
             )
-            
+
+            await self._with_timeout(
+                client.delete(
+                    collection_name=self.collection_name,
+                    points_selector=Filter(
+                        must=[
+                            FieldCondition(
+                                key="user_id",
+                                match=MatchValue(value=user_id)
+                            )
+                        ],
+                        must_not=[
+                            HasIdCondition(has_id=point_ids)
+                        ],
+                    ),
+                    wait=True
+                ),
+                "delete stale embeddings",
+            )
+
             logger.info(f"✓ Enrolled {len(points)} embeddings for user_id={user_id}")
-            
+
             return {
                 "success": True,
                 "inserted_count": len(points),

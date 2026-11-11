@@ -138,3 +138,22 @@ def test_ready_dependency_timeout_is_bounded(client, monkeypatch):
     assert payload["qdrant_connected"] is False
     assert elapsed < 1.0
 
+
+def test_lifespan_initializes_qdrant_collection_on_startup(monkeypatch):
+    from fastapi.testclient import TestClient
+    import src.main as main_mod
+
+    monkeypatch.setattr(settings, "skip_model_load", True)
+    get_client_calls = 0
+
+    async def fake_get_client():
+        nonlocal get_client_calls
+        get_client_calls += 1
+        return object()
+
+    monkeypatch.setattr(main_mod.qdrant_service, "get_client", fake_get_client)
+
+    with TestClient(main_mod.app):
+        assert get_client_calls == 1
+
+

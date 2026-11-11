@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from src.config import settings
 from src.core.inference_engine import inference_engine
+from src.services.qdrant_client import qdrant_service, QdrantServiceError
 from src.api.routes import health, identification, enrollment
 from src.api.exceptions import http_exception_handler, general_exception_handler
 
@@ -34,6 +35,11 @@ async def lifespan(app: FastAPI):
 
             logger.info("🔥 Warming up inference engine...")
             inference_engine.warmup()
+
+        try:
+            await qdrant_service.get_client()
+        except (QdrantServiceError, Exception) as e:
+            logger.warning(f"Qdrant initialization deferred during startup: {e}")
         
         logger.info("=" * 60)
         logger.info(f"✅ Server ready on {settings.api_host}:{settings.api_port}")

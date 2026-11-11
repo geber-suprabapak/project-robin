@@ -259,3 +259,23 @@ async def test_get_client_setup_failure_resets_ready_flag(monkeypatch):
     assert service._client is None
     assert service._collection_ready is False
     assert client.create_collection_calls == 0
+
+
+@pytest.mark.anyio
+async def test_qdrant_enroll_upsert_failure_preserves_existing_embeddings(monkeypatch):
+    client = RecordingQdrantClient(collections=["face_embeddings"])
+
+    async def failing_upsert(**kwargs):
+        raise RuntimeError("upsert failed")
+
+    monkeypatch.setattr(client, "upsert", failing_upsert)
+    monkeypatch.setattr(qdrant_client, "AsyncQdrantClient", lambda **kwargs: client)
+
+    service = QdrantService()
+
+    with pytest.raises(QdrantOperationError, match="upsert embeddings failed"):
+        await service.enroll_user_embeddings("u1", [np.array([1.0, 0.0]), np.array([0.0, 1.0])])
+
+    assert client.delete_calls == 0
+    assert client.deleted is False
+
