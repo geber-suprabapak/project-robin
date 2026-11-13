@@ -3,7 +3,8 @@
 
 This is a Python 3.12+ FastAPI service managed with uv. Use `uv sync --group dev`
 to provision development dependencies, `uv run ruff check src tests` for linting,
-and `uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=70` for
+`uv run ty check` for type checking, and
+`uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=70` for
 the documented coverage gate. Read `README.md` before starting a local API server;
 the project configuration remains authoritative.
 
